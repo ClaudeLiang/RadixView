@@ -1,0 +1,2 @@
+[codespell]
+skip = *.json, *.jsonl, *.txt, *.lock
