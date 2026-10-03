@@ -26,9 +26,10 @@ from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse
 
-_MISSING_PUBLISHER = (
-    "server is not publishing KV events; start it with "
-    '--kv-events-config \'{"publisher":"zmq","endpoint":"tcp://*:5557"}\''
+_RESTART = (
+    "restart it with "
+    '--kv-events-config \'{"publisher":"zmq","endpoint":"tcp://*:5557"}\'; '
+    "a process that is already running does not pick the flag up"
 )
 # SGLang binds its PUB socket only on these hosts. On any other host it
 # connects instead, and a dialing subscriber can never reach it.
@@ -93,14 +94,104 @@ def _auth_headers(api_key: Optional[str]) -> dict[str, str]:
 
 
 def _kv_block(info: dict) -> dict:
+    """The structured ``kv_events`` block, or one built from the raw CLI string.
+
+    Older servers dump ``--kv-events-config`` as ``kv_events_config`` and do
+    not build the structured block.
+    """
     kv = info.get("kv_events")
-    if not isinstance(kv, dict):
-        raise RuntimeError(_MISSING_PUBLISHER)
+    if isinstance(kv, dict):
+        return _require_zmq(kv, "kv_events")
+    cfg = _config_dict(info.get("kv_events_config"))
+    if cfg is None:
+        raise RuntimeError(_not_publishing(info))
+    return _describe(info, cfg)
+
+
+def _require_zmq(kv: dict, where: str) -> dict:
     if kv.get("publisher") != "zmq":
         raise RuntimeError(
-            f"kv_events.publisher is {kv.get('publisher')!r}, expected 'zmq'"
+            f"{where}.publisher is {kv.get('publisher')!r}, expected 'zmq'"
         )
     return kv
+
+
+def _config_dict(raw: object) -> Optional[dict]:
+    if isinstance(raw, str) and raw.strip():
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"kv_events_config is not JSON: {exc}") from exc
+    if isinstance(raw, dict):
+        return raw
+    return None
+
+
+def _not_publishing(info: dict) -> str:
+    configured = info.get("kv_events_config", "<absent>")
+    return (
+        "this server's /server_info has no KV-event publisher "
+        f"(kv_events={info.get('kv_events')!r}, kv_events_config={configured!r}). "
+        + _RESTART
+    )
+
+
+def _describe(info: dict, cfg: dict) -> dict:
+    _require_zmq(cfg, "kv_events_config")
+    host, port = _split_tcp(cfg.get("endpoint"))
+    return {
+        "publisher": "zmq",
+        "endpoint_host": host,
+        "endpoint_port_base": port,
+        "topic": cfg.get("topic") or "",
+        "block_size": _event_block_size(info),
+        "dp_size": _dp_size(info),
+    }
+
+
+def _split_tcp(endpoint: object) -> tuple[str, int]:
+    if not isinstance(endpoint, str) or not endpoint.startswith("tcp://"):
+        raise RuntimeError(
+            f"kv_events_config.endpoint must be tcp://, got {endpoint!r}"
+        )
+    host, port = _host_port(endpoint[len("tcp://") :])
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise RuntimeError(
+            f"kv_events_config.endpoint has no usable port: {endpoint!r}"
+        )
+    return host, int(port)
+
+
+def _host_port(address: str) -> tuple[str, str]:
+    if address.startswith("["):
+        host, sep, rest = address[1:].partition("]")
+        port = rest[1:] if sep and rest.startswith(":") else ""
+        return f"[{host}]", port
+    host, sep, port = address.rpartition(":")
+    if not sep:
+        return address, ""
+    return host, port
+
+
+def _event_block_size(info: dict) -> int:
+    page_size = info.get("page_size")
+    dcp_size = info.get("dcp_size", 1)
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size <= 0:
+        raise RuntimeError(
+            f"server_info page_size must be a positive int, got {page_size!r}"
+        )
+    if isinstance(dcp_size, bool) or not isinstance(dcp_size, int) or dcp_size <= 0:
+        raise RuntimeError(
+            f"server_info dcp_size must be a positive int, got {dcp_size!r}"
+        )
+    return page_size * dcp_size
+
+
+def _dp_size(info: dict) -> int:
+    value = info.get("dp_size", 1)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RuntimeError(f"server_info dp_size must be an int, got {value!r}")
+    return value
 
 
 def _require_wildcard_host(kv: dict) -> None:

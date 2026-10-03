@@ -43,7 +43,50 @@ class TestPublishersFromInfo(unittest.TestCase):
 
     def test_rejects_a_server_that_is_not_publishing(self):
         for info in [{}, {"kv_events": None}]:
-            with self.subTest(info=info), self.assertRaises(RuntimeError):
+            with self.subTest(info=info):
+                with self.assertRaisesRegex(RuntimeError, "kv_events_config"):
+                    publishers_from_info(_SERVER, info)
+
+    def test_reads_the_raw_cli_config_when_the_block_is_absent(self):
+        info = {
+            "kv_events": None,
+            "kv_events_config": '{"publisher":"zmq","endpoint":"tcp://*:5557"}',
+            "page_size": 64,
+            "dp_size": 1,
+        }
+        publishers = publishers_from_info("http://10.0.0.8:8021", info)
+        self.assertEqual(publishers.block_size, 64)
+        self.assertEqual(publishers.ranks[0].endpoint, "tcp://10.0.0.8:5557")
+
+    def test_scales_block_size_by_dcp_size(self):
+        info = {
+            "kv_events_config": {
+                "publisher": "zmq",
+                "endpoint": "tcp://[::]:5557",
+                "topic": "kv",
+            },
+            "page_size": 64,
+            "dcp_size": 2,
+        }
+        publishers = publishers_from_info("http://[::1]:8021", info)
+        self.assertEqual(publishers.block_size, 128)
+        self.assertEqual(publishers.ranks[0].endpoint, "tcp://[::1]:5557")
+        self.assertEqual(publishers.ranks[0].topic, "kv")
+
+    def test_rejects_an_unusable_cli_config(self):
+        cases = {
+            "not json": {"kv_events_config": "{not json"},
+            "null publisher": {"kv_events_config": '{"publisher":"null"}'},
+            "no port": {
+                "kv_events_config": '{"publisher":"zmq","endpoint":"tcp://*"}',
+                "page_size": 64,
+            },
+            "no page size": {
+                "kv_events_config": '{"publisher":"zmq","endpoint":"tcp://*:5557"}',
+            },
+        }
+        for name, info in cases.items():
+            with self.subTest(name), self.assertRaises(RuntimeError):
                 publishers_from_info(_SERVER, info)
 
     def test_rejects_a_publisher_that_is_not_zmq(self):
