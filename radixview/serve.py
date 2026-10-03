@@ -11,10 +11,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Run the KV-event subscriber.
+"""Run the KV-event subscriber and the tree page.
 
-Discovers publishers from ``{server}/server_info`` and logs each
-``BlockStored``, ``BlockRemoved``, and ``AllBlocksCleared``.
+Discovers publishers from ``{server}/server_info``, logs each
+``BlockStored``, ``BlockRemoved``, and ``AllBlocksCleared``, and keeps the
+resulting radix tree for the page.
 """
 
 from __future__ import annotations
@@ -25,14 +26,16 @@ from typing import Optional
 
 from radixview.config import MonitorConfig
 from radixview.discover import load_publishers
+from radixview.server import start_server, stop_server
 from radixview.subscribe import listen
 from radixview.text import Detokenizer
+from radixview.tree import CacheTree
 
 logger = logging.getLogger(__name__)
 
 
 def serve(config: MonitorConfig, stop: Optional[threading.Event] = None) -> None:
-    """Subscribe to ``config.server`` and log KV-cache events until ``stop``.
+    """Subscribe to ``config.server`` until ``stop``.
 
     Without ``stop`` this blocks until the caller is interrupted.
     """
@@ -43,4 +46,9 @@ def serve(config: MonitorConfig, stop: Optional[threading.Event] = None) -> None
         publishers.block_size,
         len(publishers.ranks),
     )
-    listen(publishers, stop, Detokenizer(config.server, config.api_key))
+    tree = CacheTree()
+    httpd = start_server(tree, config.view_port)
+    try:
+        listen(publishers, stop, Detokenizer(config.server, config.api_key), tree)
+    finally:
+        stop_server(httpd)

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "radixview"
 dynamic = ["version"]
-description = "SGLang sidecar that logs KV-cache events from a running server."
+description = "SGLang sidecar that shows KV-cache events from a running server."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -34,6 +34,9 @@ version = { attr = "radixview.version.__version__" }
 [tool.setuptools.packages.find]
 include = ["radixview*"]
 
+[tool.setuptools.package-data]
+radixview = ["web/*.css", "web/*.html", "web/js/*.mjs"]
+
 [tool.ruff]
 line-length = 88
 
@@ -41,8 +44,8 @@ line-length = 88
 select = ["F401", "F821", "F823", "UP037", "C901"]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 10
+max-complexity = 9
 
 [tool.isort]
 profile = "black"
-known_first_party = ["radixview"]
+known_first_party = ["examples", "radixview"]

@@ -1,0 +1,157 @@
+:root {
+  color-scheme: dark;
+  --bg: #101114;
+  --panel: #181b21;
+  --line: #2a2f38;
+  --text: #e8e9ed;
+  --muted: #9aa1ad;
+  --accent: #9eb7ef;
+  --missing: #d2b36a;
+  --node: #22262e;
+  --node-line: #3c4452;
+  --edge: #4c5566;
+  --hit: #7fd1a8;
+  --font: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+}
+
+header {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+#stats, #hits {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+header input {
+  margin-left: auto;
+  width: 240px;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+header button {
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+main {
+  height: calc(100% - 52px);
+  display: flex;
+}
+
+#stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+canvas.drag { cursor: grabbing; }
+
+#empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+#hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  padding: 2px 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+aside {
+  display: none;
+  width: 400px;
+  padding: 16px;
+  overflow: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+aside.open { display: block; }
+
+#path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+#path button {
+  max-width: 100%;
+  padding: 2px 8px;
+  overflow: hidden;
+  background: var(--node);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+#path button.current {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.page {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}

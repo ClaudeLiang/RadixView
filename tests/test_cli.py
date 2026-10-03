@@ -15,6 +15,7 @@ class TestBuildParser(unittest.TestCase):
         args = cli.build_parser().parse_args([])
         self.assertEqual(args.server, "http://127.0.0.1:30000")
         self.assertIsNone(args.api_key)
+        self.assertEqual(args.view_port, 8765)
 
     def test_version(self):
         stdout = io.StringIO()
@@ -23,13 +24,24 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 0)
         self.assertEqual(stdout.getvalue().strip(), f"radixview {__version__}")
 
+    def test_rejects_a_bad_port(self):
+        for raw in ["70000", "-1", "x"]:
+            with self.subTest(raw=raw):
+                with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    with self.assertRaises(SystemExit) as ctx:
+                        cli.build_parser().parse_args(["--view-port", raw])
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn("--view-port", stderr.getvalue())
+
 
 @mock.patch("logging.basicConfig")
 @mock.patch.object(cli, "serve")
 class TestMain(unittest.TestCase):
     def test_serves_the_parsed_config(self, serve, _basic_config):
-        cli.main(["--server", "http://h:1/", "--api-key", "sk"])
-        serve.assert_called_once_with(MonitorConfig(server="http://h:1", api_key="sk"))
+        cli.main(["--server", "http://h:1/", "--api-key", "sk", "--view-port", "9"])
+        serve.assert_called_once_with(
+            MonitorConfig(server="http://h:1", api_key="sk", view_port=9)
+        )
 
     def test_a_bad_url_is_a_usage_error(self, serve, _basic_config):
         with contextlib.redirect_stderr(io.StringIO()) as stderr:

@@ -1,0 +1,38 @@
+{
+  "system": [
+    "System: You are a company knowledge-base assistant. Cite a source, and say so when you are not sure.",
+    "System: Reply in plain English. Mark code blocks with a language. Keep tables to 6 columns.",
+    "System: Identity and permissions come from the gateway. Do not repeat internal fields."
+  ],
+  "tools": [
+    "Tool: search_docs(query, top_k) runs a vector search and returns titles, passages, and links.",
+    "Tool: run_sql(sql) is read-only. Results longer than 1000 rows are truncated."
+  ],
+  "orphan": [
+    "User: Is the deploy script from last time still around?",
+    "Assistant: Yes, at deploy/rollout.sh. Check out the release branch first."
+  ],
+  "topics": [
+    "expense reports",
+    "the VPN",
+    "quarterly revenue",
+    "a release rollback",
+    "the expiring certificate",
+    "GPU quota",
+    "contract approval",
+    "the on-call handoff"
+  ],
+  "questions": [
+    "User: How do I handle {topic}?",
+    "User: Did anything change recently about {topic}?",
+    "User: Look up the data we have on {topic}."
+  ],
+  "replies": [
+    "Assistant: Calling search_docs(\"{topic}\", 5).",
+    "Tool result: 3 documents mention {topic}. The newest was updated last week.",
+    "Assistant: {topic} takes three steps: file it, a manager confirms, then it is archived.",
+    "User: The second step is stuck. What now?",
+    "Assistant: Check whether the approver is out. It is reassigned after 48 hours.",
+    "Assistant: Calling run_sql to total {topic} by department for the last 30 days."
+  ]
+}

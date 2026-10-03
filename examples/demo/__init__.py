@@ -11,13 +11,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Show KV-cache events from one SGLang server.
+"""Synthetic agent traffic for the tree page.
 
-RadixView subscribes to the server's ZMQ publishers, logs each cache event,
-and serves the resulting radix tree. It does not route requests and it does
-not read the server's radix tree in-process.
+Run ``python -m examples.demo`` from a checkout. The library does not import
+this package. Prompt text lives in ``corpus.json``.
 """
 
-from radixview.version import __version__
+from examples.demo.traffic import MISSING_PARENT, PAGE_TOKENS, DemoTraffic, run_demo
 
-__all__ = ["__version__"]
+__all__ = ["MISSING_PARENT", "PAGE_TOKENS", "DemoTraffic", "run_demo"]

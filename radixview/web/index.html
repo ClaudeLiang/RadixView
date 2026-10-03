@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RadixView</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/js/main.mjs"></script>
+</head>
+<body>
+  <header>
+    <h1>RadixView</h1>
+    <div id="stats">Waiting for cache events</div>
+    <input id="query" type="search" placeholder="Search text" autocomplete="off">
+    <span id="hits"></span>
+    <button id="fit" type="button" title="Shortcut: F">Fit</button>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+      <div id="empty">No BlockStored events yet</div>
+      <div id="hint">Drag or scroll to pan · Cmd/Ctrl + scroll to zoom · F fit · Esc close</div>
+    </div>
+    <aside id="detail">
+      <nav id="path"></nav>
+      <div id="pages"></div>
+    </aside>
+  </main>
+</body>
+</html>

@@ -34,6 +34,7 @@ class MonitorConfig:
 
     server: str
     api_key: Optional[str] = None
+    view_port: int = 8765
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> MonitorConfig:
@@ -43,4 +44,8 @@ class MonitorConfig:
             raise ValueError(
                 f"--server must be an http(s) URL with a host, got {args.server!r}"
             )
-        return cls(server=server, api_key=args.api_key or None)
+        return cls(
+            server=server,
+            api_key=args.api_key or None,
+            view_port=args.view_port,
+        )

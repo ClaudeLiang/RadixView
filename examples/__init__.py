@@ -11,13 +11,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Show KV-cache events from one SGLang server.
-
-RadixView subscribes to the server's ZMQ publishers, logs each cache event,
-and serves the resulting radix tree. It does not route requests and it does
-not read the server's radix tree in-process.
-"""
-
-from radixview.version import __version__
-
-__all__ = ["__version__"]
+"""Runnable examples. Not imported by the radixview library."""

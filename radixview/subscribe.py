@@ -27,6 +27,7 @@ import zmq
 
 from radixview.discover import PublisherSet, RankPublisher
 from radixview.text import Detokenizer
+from radixview.tree import CacheTree
 from radixview.wire import decode_multipart, format_event, sequence_break
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ def listen(
     publishers: PublisherSet,
     stop: Optional[threading.Event] = None,
     detokenizer: Optional[Detokenizer] = None,
+    tree: Optional[CacheTree] = None,
 ) -> None:
     """Log every event from ``publishers`` until ``stop`` is set.
 
@@ -50,7 +52,7 @@ def listen(
     context = zmq.Context()
     try:
         poller, rank_of = _register(context, publishers)
-        _poll(poller, rank_of, stop, detokenizer)
+        _poll(poller, rank_of, stop, detokenizer, tree)
     finally:
         context.destroy(linger=0)
 
@@ -81,11 +83,12 @@ def _poll(
     rank_of: dict[zmq.Socket, int],
     stop: threading.Event,
     detokenizer: Optional[Detokenizer],
+    tree: Optional[CacheTree],
 ) -> None:
     last_seq: dict[int, int] = {}
     while not stop.is_set():
         for sock, _event in poller.poll(_POLL_MS):
-            _handle(sock.recv_multipart(), rank_of[sock], last_seq, detokenizer)
+            _handle(sock.recv_multipart(), rank_of[sock], last_seq, detokenizer, tree)
 
 
 def _handle(
@@ -93,6 +96,7 @@ def _handle(
     socket_rank: int,
     last_seq: dict[int, int],
     detokenizer: Optional[Detokenizer] = None,
+    tree: Optional[CacheTree] = None,
 ) -> None:
     try:
         batch = decode_multipart(frames)
@@ -104,12 +108,32 @@ def _handle(
     if discontinuity is not None:
         logger.warning("dp=%s %s", rank, discontinuity)
     for event in batch.events:
-        logger.info(
-            "dp=%s seq=%s %s",
-            rank,
-            batch.seq,
-            format_event(event, _text(detokenizer, event)),
-        )
+        text = _text(detokenizer, event)
+        _record(tree, event, detokenizer)
+        logger.info("dp=%s seq=%s %s", rank, batch.seq, format_event(event, text))
+
+
+def _record(
+    tree: Optional[CacheTree], event: dict, detokenizer: Optional[Detokenizer]
+) -> None:
+    if tree is None:
+        return
+    kind = event.get("type")
+    if kind == "BlockStored":
+        tree.apply_stored(event, None if detokenizer is None else detokenizer.decode)
+        return
+    if kind == "BlockRemoved":
+        tree.remove(_hashes(event))
+        return
+    if kind == "AllBlocksCleared":
+        tree.clear()
+
+
+def _hashes(event: dict) -> list:
+    raw = event.get("block_hashes")
+    if isinstance(raw, list):
+        return raw
+    return []
 
 
 def _text(detokenizer: Optional[Detokenizer], event: dict) -> Optional[str]:
