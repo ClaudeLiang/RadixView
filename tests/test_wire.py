@@ -113,7 +113,7 @@ class TestLegacyArrayEncoding(unittest.TestCase):
             removed, {"type": "BlockRemoved", "block_hashes": [9], "medium": None}
         )
         self.assertEqual(cleared, {"type": "AllBlocksCleared"})
-        self.assertIn("BlockStored blocks=1", format_event(stored_event))
+        self.assertIn("stored blocks=1", format_event(stored_event))
 
     def test_reads_a_trailing_cache_salt(self):
         stored = LegacyBlockStoredWithMetadata(
@@ -172,9 +172,24 @@ class TestFormatEvent(unittest.TestCase):
         self.assertIn("blocks=2", line)
         self.assertIn("tokens=20", line)
         self.assertIn("lora_id=3", line)
-        self.assertIn("medium=None", line)
+        self.assertIn("medium=-", line)
+        self.assertNotIn("cache_salt", line)
         self.assertIn("...(20)", line)
         self.assertNotIn("19", line)
+
+    def test_text_replaces_the_token_ids_and_keeps_newlines_visible(self):
+        event = self._decoded(_stored(block_hashes=[9], medium="GPU"))
+        line = format_event(event, "hello\nworld")
+        self.assertIn(
+            "stored blocks=1 tokens=2 page=2 medium=GPU parent=- hash=9", line
+        )
+        self.assertIn("\n  hello\\nworld", line)
+        self.assertNotIn("token_ids", line)
+
+    def test_a_long_text_is_cut_off(self):
+        line = format_event({"type": "BlockStored", "token_ids": [1]}, "x" * 2001)
+        self.assertIn("...(2001 chars)", line)
+        self.assertNotIn("x" * 2001, line)
 
     def test_a_short_list_is_printed_whole(self):
         line = format_event(self._decoded(_stored(token_ids=list(range(8)))))
@@ -183,15 +198,15 @@ class TestFormatEvent(unittest.TestCase):
 
     def test_stored_tolerates_missing_lists(self):
         line = format_event({"type": "BlockStored", "token_ids": None})
-        self.assertIn("blocks=0 tokens=0", line)
+        self.assertEqual(line, "stored blocks=0 tokens=0 medium=- parent=-")
 
     def test_removed_and_cleared(self):
         event = BlockRemoved(block_hashes=[7], medium="CPU_PINNED")
         removed = format_event(self._decoded(event))
-        self.assertIn("BlockRemoved blocks=1", removed)
+        self.assertIn("removed blocks=1", removed)
         self.assertIn("CPU_PINNED", removed)
         cleared = format_event(self._decoded(AllBlocksCleared()))
-        self.assertEqual(cleared, "AllBlocksCleared")
+        self.assertEqual(cleared, "cleared")
 
     def test_an_unknown_event_lists_its_fields(self):
         line = format_event({"type": "BlockMoved", "to": "DISK", "block_hashes": []})

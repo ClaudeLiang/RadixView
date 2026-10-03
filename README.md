@@ -28,7 +28,7 @@ radixview --server http://GPU_HOST:30000
 
 Add `--api-key KEY` if SGLang was started with `--api-key`.
 
-RadixView reads `kv_events` from `/server_info` and subscribes to `tcp://GPU_HOST:<port_base + dp_rank>` for every DP rank. Each `BlockStored`, `BlockRemoved`, and `AllBlocksCleared` is written to the log. Token ids are previewed, not printed in full. A skipped sequence number is logged as a gap, and a sequence number that goes back as a publisher restart.
+RadixView reads `kv_events` from `/server_info` and subscribes to `tcp://GPU_HOST:<port_base + dp_rank>` for every DP rank. Each stored, removed, and cleared page is written to the log. Stored token ids are turned back into text through the server's `/detokenize` endpoint, using that server's tokenizer. A skipped sequence number is logged as a gap, and a sequence number that goes back as a publisher restart.
 
 Start RadixView before the server, or restart the server after it is up. A prefix stored before the subscriber attached is not part of the stream.
 

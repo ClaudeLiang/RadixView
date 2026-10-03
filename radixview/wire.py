@@ -68,9 +68,15 @@ def sequence_break(last_seq: dict[int, int], rank: int, seq: int) -> Optional[st
     return f"sequence gap: {previous} -> {seq}"
 
 
-def format_event(event: dict) -> str:
-    """One log line for a decoded event, without dumping every token id."""
+def format_event(event: dict, text: Optional[str] = None) -> str:
+    """One log record for a decoded event.
+
+    ``text`` is the detokenized prompt for a ``BlockStored`` event. Without
+    it, the token ids are previewed instead of printed in full.
+    """
     kind = str(event.get("type", "unknown"))
+    if kind == "BlockStored":
+        return _format_stored(event, text)
     formatter = _FORMATTERS.get(kind, _format_unknown)
     return formatter(event)
 
@@ -155,28 +161,81 @@ def _attn_dp_rank(raw: list) -> Optional[int]:
     return raw[2]
 
 
-def _format_stored(event: dict) -> str:
+_TEXT_LIMIT = 2000
+_EXTRA_FIELDS = ("lora_id", "cache_salt", "session_id")
+
+
+def _format_stored(event: dict, text: Optional[str]) -> str:
+    head = "stored " + " ".join(_stored_fields(event))
+    body = _stored_body(event, text)
+    if not body:
+        return head
+    return f"{head}\n  {body}"
+
+
+def _stored_fields(event: dict) -> list[str]:
     tokens = _as_list(event.get("token_ids"))
     hashes = _as_list(event.get("block_hashes"))
-    return (
-        f"BlockStored blocks={len(hashes)} tokens={len(tokens)} "
-        f"block_size={event.get('block_size')} medium={event.get('medium')} "
-        f"parent={event.get('parent_block_hash')} lora_id={event.get('lora_id')} "
-        f"cache_salt={event.get('cache_salt')} "
-        f"session_id={event.get('session_id')} token_ids={_preview(tokens)}"
-    )
+    fields = [f"blocks={len(hashes)}", f"tokens={len(tokens)}"]
+    _append_page(fields, event.get("block_size"))
+    fields.append(f"medium={_or_dash(event.get('medium'))}")
+    fields.append(f"parent={_or_dash(event.get('parent_block_hash'))}")
+    _append_single_hash(fields, hashes)
+    fields.extend(_extras(event))
+    return fields
+
+
+def _append_page(fields: list[str], block_size: object) -> None:
+    if block_size is not None:
+        fields.append(f"page={block_size}")
+
+
+def _append_single_hash(fields: list[str], hashes: list) -> None:
+    if len(hashes) == 1:
+        fields.append(f"hash={hashes[0]}")
+
+
+def _extras(event: dict) -> list[str]:
+    return [
+        f"{name}={event[name]}" for name in _EXTRA_FIELDS if event.get(name) is not None
+    ]
+
+
+def _stored_body(event: dict, text: Optional[str]) -> str:
+    if text is not None:
+        return _one_line(text)
+    return _id_preview(_as_list(event.get("token_ids")))
+
+
+def _one_line(text: str) -> str:
+    flat = text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+    if len(flat) <= _TEXT_LIMIT:
+        return flat
+    return f"{flat[:_TEXT_LIMIT]}...({len(flat)} chars)"
+
+
+def _id_preview(tokens: list) -> str:
+    if not tokens:
+        return ""
+    return f"token_ids={_preview(tokens)}"
+
+
+def _or_dash(value: object) -> str:
+    if value is None:
+        return "-"
+    return str(value)
 
 
 def _format_removed(event: dict) -> str:
     hashes = _as_list(event.get("block_hashes"))
     return (
-        f"BlockRemoved blocks={len(hashes)} medium={event.get('medium')} "
+        f"removed blocks={len(hashes)} medium={_or_dash(event.get('medium'))} "
         f"hashes={_preview(hashes)}"
     )
 
 
 def _format_cleared(_event: dict) -> str:
-    return "AllBlocksCleared"
+    return "cleared"
 
 
 def _format_unknown(event: dict) -> str:
@@ -199,7 +258,6 @@ def _preview(values: list) -> str:
 
 
 _FORMATTERS = {
-    "BlockStored": _format_stored,
     "BlockRemoved": _format_removed,
     "AllBlocksCleared": _format_cleared,
 }

@@ -26,6 +26,7 @@ from typing import Optional
 import zmq
 
 from radixview.discover import PublisherSet, RankPublisher
+from radixview.text import Detokenizer
 from radixview.wire import decode_multipart, format_event, sequence_break
 
 logger = logging.getLogger(__name__)
@@ -34,17 +35,22 @@ _RECEIVE_HWM = 10_000
 _POLL_MS = 1000
 
 
-def listen(publishers: PublisherSet, stop: Optional[threading.Event] = None) -> None:
+def listen(
+    publishers: PublisherSet,
+    stop: Optional[threading.Event] = None,
+    detokenizer: Optional[Detokenizer] = None,
+) -> None:
     """Log every event from ``publishers`` until ``stop`` is set.
 
     Without ``stop`` this blocks until the caller is interrupted.
+    ``detokenizer`` turns ``BlockStored`` token ids into text.
     """
     if stop is None:
         stop = threading.Event()
     context = zmq.Context()
     try:
         poller, rank_of = _register(context, publishers)
-        _poll(poller, rank_of, stop)
+        _poll(poller, rank_of, stop, detokenizer)
     finally:
         context.destroy(linger=0)
 
@@ -66,39 +72,47 @@ def _connect(context: zmq.Context, rank: RankPublisher) -> zmq.Socket:
     sock.setsockopt(zmq.RCVHWM, _RECEIVE_HWM)
     sock.setsockopt(zmq.SUBSCRIBE, rank.topic.encode())
     sock.connect(rank.endpoint)
-    logger.info(
-        "subscribed dp_rank=%s endpoint=%s topic=%r",
-        rank.dp_rank,
-        rank.endpoint,
-        rank.topic,
-    )
+    logger.info("subscribed dp=%s %s topic=%r", rank.dp_rank, rank.endpoint, rank.topic)
     return sock
 
 
 def _poll(
-    poller: zmq.Poller, rank_of: dict[zmq.Socket, int], stop: threading.Event
+    poller: zmq.Poller,
+    rank_of: dict[zmq.Socket, int],
+    stop: threading.Event,
+    detokenizer: Optional[Detokenizer],
 ) -> None:
     last_seq: dict[int, int] = {}
     while not stop.is_set():
         for sock, _event in poller.poll(_POLL_MS):
-            _handle(sock.recv_multipart(), rank_of[sock], last_seq)
+            _handle(sock.recv_multipart(), rank_of[sock], last_seq, detokenizer)
 
 
-def _handle(frames: list[bytes], socket_rank: int, last_seq: dict[int, int]) -> None:
+def _handle(
+    frames: list[bytes],
+    socket_rank: int,
+    last_seq: dict[int, int],
+    detokenizer: Optional[Detokenizer] = None,
+) -> None:
     try:
         batch = decode_multipart(frames)
     except ValueError as exc:
-        logger.warning("dropped malformed batch on dp_rank=%s: %s", socket_rank, exc)
+        logger.warning("dropped malformed batch on dp=%s: %s", socket_rank, exc)
         return
     rank = socket_rank if batch.attn_dp_rank is None else batch.attn_dp_rank
     discontinuity = sequence_break(last_seq, rank, batch.seq)
     if discontinuity is not None:
-        logger.warning("dp_rank=%s %s", rank, discontinuity)
+        logger.warning("dp=%s %s", rank, discontinuity)
     for event in batch.events:
         logger.info(
-            "dp_rank=%s seq=%s ts=%s %s",
+            "dp=%s seq=%s %s",
             rank,
             batch.seq,
-            batch.ts,
-            format_event(event),
+            format_event(event, _text(detokenizer, event)),
         )
+
+
+def _text(detokenizer: Optional[Detokenizer], event: dict) -> Optional[str]:
+    if detokenizer is None or event.get("type") != "BlockStored":
+        return None
+    return detokenizer.decode(event.get("token_ids"))

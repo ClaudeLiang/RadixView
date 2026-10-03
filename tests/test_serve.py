@@ -48,15 +48,15 @@ class TestServe(unittest.TestCase):
                 stop.set()
                 thread.join(_TIMEOUT_S)
         self.assertFalse(thread.is_alive())
-        self.assertIn("block_size=64 dp_size=1", logs.output[0])
-        self.assertIn(f"endpoint=tcp://127.0.0.1:{self.port}", logs.output[1])
+        self.assertIn("page=64 dp=1", logs.output[0])
+        self.assertIn(f"tcp://127.0.0.1:{self.port}", logs.output[1])
         self.assertFalse([r for r in logs.records if r.levelname == "WARNING"])
 
     def _publish_until_logged(self, logs) -> None:
         # SUB connects asynchronously; PUB drops whatever it sends before then.
         deadline = time.monotonic() + _TIMEOUT_S
         seq = 0
-        while not any("BlockStored" in line for line in logs.output):
+        while not any("hello" in line for line in logs.output):
             self.assertLess(time.monotonic(), deadline, "no event was logged")
             self.pub.send_multipart(frames(seq, _batch()))
             seq += 1

@@ -26,6 +26,7 @@ from typing import Optional
 from radixview.config import MonitorConfig
 from radixview.discover import load_publishers
 from radixview.subscribe import listen
+from radixview.text import Detokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,9 @@ def serve(config: MonitorConfig, stop: Optional[threading.Event] = None) -> None
     """
     publishers = load_publishers(config.server, config.api_key)
     logger.info(
-        "server=%s block_size=%s dp_size=%s",
+        "watching %s page=%s dp=%s",
         config.server,
         publishers.block_size,
         len(publishers.ranks),
     )
-    listen(publishers, stop)
+    listen(publishers, stop, Detokenizer(config.server, config.api_key))
