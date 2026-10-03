@@ -15,8 +15,9 @@
 
 A published message is three frames: topic, an 8-byte big-endian sequence
 number, and a msgpack payload. The payload is a positional array
-``[timestamp, events, attn_dp_rank]``. Each event is a map whose ``type``
-field is ``BlockStored``, ``BlockRemoved``, or ``AllBlocksCleared``.
+``[timestamp, events, attn_dp_rank]``. Current SGLang sends each event as a
+map tagged with ``type``. Older servers send a tagged array whose first
+element is ``BlockStored``, ``BlockRemoved``, or ``AllBlocksCleared``.
 """
 
 from __future__ import annotations
@@ -103,10 +104,47 @@ def _events(raw: object) -> tuple[dict, ...]:
     return tuple(_event(item) for item in raw)
 
 
+# Positional fields of the array encoding, after the leading type tag.
+# Medium arrived later, and a trailing metadata map may carry cache_salt, so
+# both are optional tails rather than required slots.
+_ARRAY_FIELDS = {
+    "BlockStored": (
+        "block_hashes",
+        "parent_block_hash",
+        "token_ids",
+        "block_size",
+        "lora_id",
+        "medium",
+    ),
+    "BlockRemoved": ("block_hashes", "medium"),
+    "AllBlocksCleared": (),
+}
+
+
 def _event(raw: object) -> dict:
-    if not isinstance(raw, dict):
-        raise ValueError("event is not a map")
-    return raw
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list) and raw and isinstance(raw[0], str):
+        return _event_array(raw)
+    raise ValueError(f"event is not a map or tagged array, got {type(raw).__name__}")
+
+
+def _event_array(raw: list) -> dict:
+    kind = raw[0]
+    fields = _ARRAY_FIELDS.get(kind, ())
+    event = {"type": kind}
+    for name, value in zip(fields, raw[1:]):
+        event[name] = value
+    _cache_salt(event, raw[1 + len(fields) :])
+    return event
+
+
+def _cache_salt(event: dict, extra: list) -> None:
+    if not extra or not isinstance(extra[0], dict):
+        return
+    salt = extra[0].get("cache_salt")
+    if salt is not None:
+        event["cache_salt"] = salt
 
 
 def _attn_dp_rank(raw: list) -> Optional[int]:

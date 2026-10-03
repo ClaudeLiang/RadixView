@@ -46,6 +46,36 @@ class KVEventBatch(EventBatch):
     events: list[Union[BlockStored, BlockRemoved, AllBlocksCleared]]
 
 
+class LegacyKVCacheEvent(msgspec.Struct, array_like=True, gc=False, tag=True):
+    """Event encoding from before SGLang switched events to tagged maps."""
+
+
+class LegacyBlockStored(LegacyKVCacheEvent, tag="BlockStored"):
+    block_hashes: list[int]
+    parent_block_hash: Optional[int]
+    token_ids: list[int]
+    block_size: int
+    lora_id: Optional[int]
+    medium: Optional[str] = None
+
+
+class LegacyBlockRemoved(LegacyKVCacheEvent, tag="BlockRemoved"):
+    block_hashes: list[int]
+    medium: Optional[str] = None
+
+
+class LegacyAllBlocksCleared(LegacyKVCacheEvent, tag="AllBlocksCleared"):
+    pass
+
+
+class BlockStoredMetadata(msgspec.Struct, omit_defaults=True, gc=False):
+    cache_salt: str
+
+
+class LegacyBlockStoredWithMetadata(LegacyBlockStored, tag="BlockStored", kw_only=True):
+    metadata: BlockStoredMetadata
+
+
 def frames(seq: int, batch: KVEventBatch, topic: bytes = b"") -> list[bytes]:
     """The multipart message ``ZmqEventPublisher`` sends for ``batch``."""
     return [topic, seq.to_bytes(8, "big"), msgspec.msgpack.encode(batch)]

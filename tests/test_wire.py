@@ -7,7 +7,13 @@ from fake_sglang import (
     AllBlocksCleared,
     BlockRemoved,
     BlockStored,
+    BlockStoredMetadata,
+    EventBatch,
     KVEventBatch,
+    LegacyAllBlocksCleared,
+    LegacyBlockRemoved,
+    LegacyBlockStored,
+    LegacyBlockStoredWithMetadata,
     frames,
 )
 
@@ -70,13 +76,65 @@ class TestDecode(unittest.TestCase):
             "bool timestamp": _raw(0, [True, []]),
             "string timestamp": _raw(0, ["now", []]),
             "events not a list": _raw(0, [0.0, {}]),
-            "event not a map": _raw(0, [0.0, [["BlockStored"]]]),
+            "event not a map": _raw(0, [0.0, [7]]),
             "bool rank": _raw(0, [0.0, [], True]),
             "string rank": _raw(0, [0.0, [], "0"]),
         }
         for name, message in cases.items():
             with self.subTest(name), self.assertRaises(ValueError):
                 decode_multipart(message)
+
+
+class TestLegacyArrayEncoding(unittest.TestCase):
+    def test_decodes_the_array_form_older_servers_publish(self):
+        stored = LegacyBlockStored(
+            block_hashes=[9],
+            parent_block_hash=None,
+            token_ids=[1, 2],
+            block_size=64,
+            lora_id=None,
+            medium="GPU",
+        )
+        batch = EventBatch(
+            ts=1.5,
+            events=[
+                stored,
+                LegacyBlockRemoved(block_hashes=[9]),
+                LegacyAllBlocksCleared(),
+            ],
+            attn_dp_rank=0,
+        )
+        decoded = decode_multipart(frames(3, batch))
+        stored_event, removed, cleared = decoded.events
+        self.assertEqual(stored_event["type"], "BlockStored")
+        self.assertEqual(stored_event["token_ids"], [1, 2])
+        self.assertEqual(stored_event["medium"], "GPU")
+        self.assertEqual(
+            removed, {"type": "BlockRemoved", "block_hashes": [9], "medium": None}
+        )
+        self.assertEqual(cleared, {"type": "AllBlocksCleared"})
+        self.assertIn("BlockStored blocks=1", format_event(stored_event))
+
+    def test_reads_a_trailing_cache_salt(self):
+        stored = LegacyBlockStoredWithMetadata(
+            block_hashes=[1],
+            parent_block_hash=4,
+            token_ids=[1],
+            block_size=64,
+            lora_id=None,
+            metadata=BlockStoredMetadata(cache_salt="tenant-a"),
+        )
+        batch = EventBatch(ts=0.0, events=[stored])
+        event = decode_multipart(frames(0, batch)).events[0]
+        self.assertEqual(event["cache_salt"], "tenant-a")
+        self.assertEqual(event["block_hashes"], [1])
+
+    def test_accepts_the_shorter_array_from_before_medium_existed(self):
+        payload = [0.0, [["BlockStored", [9], None, [1, 2], 64, None]]]
+        event = decode_multipart(_raw(1, payload)).events[0]
+        self.assertEqual(event["type"], "BlockStored")
+        self.assertEqual(event["token_ids"], [1, 2])
+        self.assertNotIn("medium", event)
 
 
 class TestSequenceBreak(unittest.TestCase):
