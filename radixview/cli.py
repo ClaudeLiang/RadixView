@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--view-port",
         type=_port,
         default=8765,
-        help="Local port for the radix tree page. 0 picks a free port.",
+        help="Port for the radix tree page, on every interface. 0 picks a free port.",
     )
     parser.add_argument(
         "--version",

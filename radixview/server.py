@@ -11,7 +11,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Local HTTP server for the tree page.
+"""HTTP server for the tree page.
+
+It listens on every interface, so the page is ``http://<host>:<port>`` from
+another machine. The responses include prompt text.
 
 ``/api/*`` answers JSON from a ``CacheTree``. Everything else is a static
 file under ``radixview/web``; the page itself has no build step.
@@ -34,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 WEB_ROOT = Path(__file__).resolve().with_name("web")
 
-_HOST = "127.0.0.1"
+_HOST = "0.0.0.0"
 _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
@@ -43,7 +46,7 @@ _CONTENT_TYPES = {
 
 
 def start_server(tree: CacheTree, port: int) -> Optional[ThreadingHTTPServer]:
-    """Serve the page on ``127.0.0.1:port`` from a daemon thread.
+    """Serve the page on ``0.0.0.0:port`` from a daemon thread.
 
     Returns ``None`` when the port cannot be bound, so the subscriber keeps
     logging without the page.

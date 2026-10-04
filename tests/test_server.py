@@ -30,6 +30,7 @@ class TestServer(unittest.TestCase):
         self.httpd = start_server(_tree(), 0)
         self.addCleanup(stop_server, self.httpd)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        self.assertEqual(self.httpd.server_address[0], "0.0.0.0")
 
     def _get(self, path):
         with urllib.request.urlopen(self.base + path) as response:
@@ -92,7 +93,7 @@ class TestServer(unittest.TestCase):
 class TestStartServer(unittest.TestCase):
     def test_a_busy_port_disables_the_page(self):
         with socket.socket() as busy:
-            busy.bind(("127.0.0.1", 0))
+            busy.bind(("0.0.0.0", 0))
             busy.listen()
             with self.assertLogs("radixview.server", "ERROR"):
                 httpd = start_server(CacheTree(), busy.getsockname()[1])

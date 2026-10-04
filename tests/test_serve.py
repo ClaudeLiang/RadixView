@@ -32,7 +32,7 @@ def _page_url(logs) -> str:
     for line in logs.output:
         match = re.search(r"tree page (http://\S+)", line)
         if match:
-            return match.group(1)
+            return match.group(1).replace("://0.0.0.0:", "://127.0.0.1:", 1)
     raise AssertionError("the tree page was not started")
 
 

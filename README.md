@@ -1,6 +1,6 @@
 # RadixView
 
-RadixView shows the KV cache of a running [SGLang](https://github.com/sgl-project/sglang) server. It subscribes to the server's ZMQ event stream, logs each stored, removed, and cleared page, and draws the radix tree at `http://127.0.0.1:8765`.
+RadixView shows the KV cache of a running [SGLang](https://github.com/sgl-project/sglang) server. It subscribes to the server's ZMQ event stream, logs each stored, removed, and cleared page, and draws the radix tree at `http://<host>:8765`.
 
 It can run on another machine from the GPU server. It does not route requests, and it does not read the server's radix tree in-process.
 
@@ -13,7 +13,7 @@ pip install -e ".[dev]"
 python -m examples.demo
 ```
 
-Open `http://127.0.0.1:8765`. The demo fills the tree with synthetic agent traffic: one shared system prompt, many sessions, a few regenerated turns, and eviction once the cache is full. `--pages 20000` keeps a larger cache. `--port` changes the port.
+Open `http://127.0.0.1:8765`, or `http://<host>:8765` from another machine. The demo fills the tree with synthetic agent traffic: one shared system prompt, many sessions, a few regenerated turns, and eviction once the cache is full. `--pages 20000` keeps a larger cache. `--port` changes the port.
 
 Prompt text for the demo is `examples/demo/corpus.json`. The generator is `examples/demo/traffic.py`. Neither is imported by the library.
 
@@ -33,7 +33,7 @@ Then, from this machine or another one that can reach the server:
 radixview --server http://GPU_HOST:30000
 ```
 
-Add `--api-key KEY` when SGLang was started with `--api-key`. `--view-port` changes the page port.
+Add `--api-key KEY` when SGLang was started with `--api-key`. The page listens on every interface at `--view-port` (8765 by default): open `http://<the host running RadixView>:8765`.
 
 RadixView reads `/server_info` and subscribes to `tcp://GPU_HOST:<port_base + dp_rank>` for every data-parallel rank. Stored token ids are turned back into text through that server's `/detokenize` endpoint. A skipped sequence number is logged as a gap, and a sequence number that goes backwards is logged as a publisher restart.
 
@@ -56,7 +56,7 @@ Drag or scroll to pan. Cmd/Ctrl + scroll zooms. `F` fits the tree. `Esc` closes 
 | `radixview/subscribe.py` | The subscriber and the log line |
 | `radixview/text.py` | `/detokenize` |
 | `radixview/tree.py` | The radix tree built from events |
-| `radixview/server.py` | `http://127.0.0.1:8765` and `/api/*` |
+| `radixview/server.py` | the tree page and `/api/*` |
 | `radixview/web/` | The page. No build step. Labels are in `web/js/format.mjs` |
 | `examples/demo/` | Synthetic traffic. Not part of the library |
 | `tests/` | Python tests. `tests/web/` tests the page modules |
