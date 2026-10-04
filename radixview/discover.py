@@ -21,10 +21,13 @@ replace it with the host of the server URL they already use for HTTP.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse
+
+from radixview.fetch import open_url
 
 _RESTART = (
     "restart it with "
@@ -78,13 +81,25 @@ def publishers_from_info(server: str, info: dict) -> PublisherSet:
 def _get_json(url: str, api_key: Optional[str]) -> dict:
     request = urllib.request.Request(url, headers=_auth_headers(api_key))
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with open_url(request, timeout=10) as response:
             payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise RuntimeError(f"failed to fetch {url}: {exc}{_hint(exc.code)}") from exc
     except (OSError, ValueError) as exc:
         raise RuntimeError(f"failed to fetch {url}: {exc}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"{url} did not return a JSON object")
     return payload
+
+
+def _hint(status: int) -> str:
+    if status not in (401, 403):
+        return ""
+    return (
+        "; pass --api-key if SGLang was started with one, and check that "
+        "http_proxy/https_proxy is not answering for this host (add it to no_proxy)"
+    )
 
 
 def _auth_headers(api_key: Optional[str]) -> dict[str, str]:

@@ -25,6 +25,8 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
+from radixview.fetch import open_url
+
 logger = logging.getLogger(__name__)
 
 _CACHE_LIMIT = 4096
@@ -60,7 +62,7 @@ class Detokenizer:
         ).encode()
         request = urllib.request.Request(self._url, data=body, headers=self._headers)
         try:
-            with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as response:
+            with open_url(request, timeout=_TIMEOUT_S) as response:
                 payload = json.load(response)
         except urllib.error.HTTPError as exc:
             self._fail(exc.code, str(exc))

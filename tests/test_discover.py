@@ -135,6 +135,22 @@ class TestLoadPublishers(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     load_publishers(server.url)
 
+    def test_a_forbidden_answer_names_the_likely_causes(self):
+        for status in [401, 403]:
+            with self.subTest(status=status):
+                with InfoServer({"error": "Forbidden"}, status=status) as server:
+                    with self.assertRaises(RuntimeError) as ctx:
+                        load_publishers(server.url)
+                self.assertIn(f"HTTP Error {status}", str(ctx.exception))
+                self.assertIn("--api-key", str(ctx.exception))
+                self.assertIn("no_proxy", str(ctx.exception))
+
+    def test_other_http_errors_have_no_hint(self):
+        with InfoServer({"error": "boom"}, status=500) as server:
+            with self.assertRaises(RuntimeError) as ctx:
+                load_publishers(server.url)
+        self.assertNotIn("no_proxy", str(ctx.exception))
+
     def test_reports_an_unreachable_server(self):
         with InfoServer(_info()) as server:
             url = server.url
