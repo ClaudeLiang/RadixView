@@ -60,14 +60,14 @@ class TestServe(unittest.TestCase):
             try:
                 self._publish_until_logged(logs)
                 snapshot = _get_json(_page_url(logs) + "/api/tree")
-                pages = _get_json(_page_url(logs) + "/api/run?id=1")["pages"]
+                blocks = _get_json(_page_url(logs) + "/api/run?id=1")["blocks"]
             finally:
                 stop.set()
                 thread.join(_TIMEOUT_S)
         self.assertFalse(thread.is_alive())
-        self.assertEqual(snapshot["stats"]["pages"], 1)
-        self.assertEqual(pages[0]["text"], "hello")
-        self.assertTrue(any("page=64 dp=1" in line for line in logs.output))
+        self.assertEqual(snapshot["stats"]["blocks"], 1)
+        self.assertEqual(blocks[0]["text"], "hello")
+        self.assertTrue(any("block_size=64 dp=1" in line for line in logs.output))
         self.assertTrue(
             any(f"tcp://127.0.0.1:{self.port}" in line for line in logs.output)
         )

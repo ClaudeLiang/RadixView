@@ -181,7 +181,7 @@ class TestFormatEvent(unittest.TestCase):
         event = self._decoded(_stored(block_hashes=[9], medium="GPU"))
         line = format_event(event, "hello\nworld")
         self.assertIn(
-            "stored blocks=1 tokens=2 page=2 medium=GPU parent=- hash=9", line
+            "stored blocks=1 tokens=2 block_size=2 medium=GPU parent=- hash=9", line
         )
         self.assertIn("\n  hello\\nworld", line)
         self.assertNotIn("token_ids", line)

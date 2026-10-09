@@ -13,9 +13,9 @@
 # ==============================================================================
 """Radix tree rebuilt from KV-cache events.
 
-A straight chain of pages collapses into one visual node, so a long prompt
+A straight chain of blocks collapses into one visual node, so a long prompt
 does not become a long line of boxes. Branch points stay separate nodes.
-A page whose parent was stored before the subscriber attached hangs off a
+A block whose parent was stored before the subscriber attached hangs off a
 placeholder node marked ``missing``.
 
 Readers get an immutable view that is rebuilt only after a mutation, so a
@@ -35,8 +35,8 @@ _SEARCH_LIMIT = 500
 
 
 @dataclass(frozen=True, slots=True)
-class Page:
-    """One resident cache page."""
+class Block:
+    """One resident cache block."""
 
     hash: str
     parent: Optional[str]
@@ -52,40 +52,40 @@ class TreeView:
     version: int
     nodes: list[dict]
     stats: dict
-    runs: dict[str, tuple[Page, ...]]
+    runs: dict[str, tuple[Block, ...]]
     haystacks: dict[str, str]
 
 
 class CacheTree:
-    """Resident pages keyed by the block hash from the event."""
+    """Resident blocks keyed by the block hash from the event."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._pages: dict[str, Page] = {}
+        self._blocks: dict[str, Block] = {}
         self._version = 0
         self._view: Optional[TreeView] = None
 
     def apply_stored(self, event: dict, decode: Optional[Decode] = None) -> None:
-        """Insert the pages of one ``BlockStored`` event."""
-        pages = [_page(spec, decode) for spec in _stored_specs(event)]
-        if not pages:
+        """Insert the blocks of one ``BlockStored`` event."""
+        blocks = [_block(spec, decode) for spec in _stored_specs(event)]
+        if not blocks:
             return
         with self._lock:
-            self._pages.update((page.hash, page) for page in pages)
+            self._blocks.update((block.hash, block) for block in blocks)
             self._version += 1
 
     def remove(self, hashes: list) -> None:
-        """Drop the pages named by a ``BlockRemoved`` event."""
+        """Drop the blocks named by a ``BlockRemoved`` event."""
         keys = [key for key in map(_hash_key, hashes) if key is not None]
         with self._lock:
-            removed = [self._pages.pop(key, None) for key in keys]
+            removed = [self._blocks.pop(key, None) for key in keys]
             if any(removed):
                 self._version += 1
 
     def clear(self) -> None:
-        """Drop every page, for ``AllBlocksCleared`` or a publisher restart."""
+        """Drop every block, for ``AllBlocksCleared`` or a publisher restart."""
         with self._lock:
-            self._pages.clear()
+            self._blocks.clear()
             self._version += 1
 
     def snapshot(self, since: Optional[int] = None) -> dict:
@@ -95,12 +95,12 @@ class CacheTree:
             return {"version": view.version, "unchanged": True}
         return {"version": view.version, "nodes": view.nodes, "stats": view.stats}
 
-    def pages_of(self, node_id: str) -> list[dict]:
-        """Every page inside one visual node, in prefix order."""
-        return [_page_detail(page) for page in self.view().runs.get(node_id, ())]
+    def blocks_of(self, node_id: str) -> list[dict]:
+        """Every block inside one visual node, in prefix order."""
+        return [_block_detail(block) for block in self.view().runs.get(node_id, ())]
 
     def search(self, query: str) -> list[str]:
-        """Ids of the visual nodes whose page text contains ``query``."""
+        """Ids of the visual nodes whose block text contains ``query``."""
         needle = query.strip().lower()
         if not needle:
             return []
@@ -109,13 +109,13 @@ class CacheTree:
         return hits[:_SEARCH_LIMIT]
 
     def view(self) -> TreeView:
-        """The current view, rebuilt only when the pages changed."""
+        """The current view, rebuilt only when the blocks changed."""
         with self._lock:
             if self._view is not None and self._view.version == self._version:
                 return self._view
-            pages = dict(self._pages)
+            blocks = dict(self._blocks)
             version = self._version
-        view = _build_view(pages, version)
+        view = _build_view(blocks, version)
         with self._lock:
             if version == self._version:
                 self._view = view
@@ -153,46 +153,46 @@ def _chunks(tokens: list, count: int, block_size: object) -> list[list]:
     return [tokens[start:end] for start, end in zip(starts, ends)]
 
 
-def _page(spec: _Spec, decode: Optional[Decode]) -> Page:
+def _block(spec: _Spec, decode: Optional[Decode]) -> Block:
     text = ""
     if decode is not None and spec.tokens:
         text = decode(spec.tokens) or ""
-    return Page(spec.hash, spec.parent, text, len(spec.tokens), spec.medium)
+    return Block(spec.hash, spec.parent, text, len(spec.tokens), spec.medium)
 
 
-def _build_view(pages: dict[str, Page], version: int) -> TreeView:
-    runs = _runs(pages)
-    owner = {page.hash: run_id for run_id, run in runs.items() for page in run}
+def _build_view(blocks: dict[str, Block], version: int) -> TreeView:
+    runs = _runs(blocks)
+    owner = {block.hash: run_id for run_id, run in runs.items() for block in run}
     nodes = [_node(run_id, run, owner) for run_id, run in runs.items()]
     nodes.extend(_placeholders(nodes))
     haystacks = {
-        run_id: "\n".join(page.text for page in run).lower()
+        run_id: "\n".join(block.text for block in run).lower()
         for run_id, run in runs.items()
     }
-    return TreeView(version, nodes, _stats(pages, nodes), runs, haystacks)
+    return TreeView(version, nodes, _stats(blocks, nodes), runs, haystacks)
 
 
-def _runs(pages: dict[str, Page]) -> dict[str, tuple[Page, ...]]:
-    children = _children(pages)
+def _runs(blocks: dict[str, Block]) -> dict[str, tuple[Block, ...]]:
+    children = _children(blocks)
     seen: set[str] = set()
-    runs: dict[str, tuple[Page, ...]] = {}
-    stack = [page.hash for page in pages.values() if page.parent not in pages]
+    runs: dict[str, tuple[Block, ...]] = {}
+    stack = [block.hash for block in blocks.values() if block.parent not in blocks]
     stack.reverse()
     while stack:
         head = stack.pop()
         if head in seen:
             continue
         run = _unary_run(head, children, seen)
-        runs[_run_id(run)] = tuple(pages[key] for key in run)
+        runs[_run_id(run)] = tuple(blocks[key] for key in run)
         stack.extend(reversed(children[run[-1]]))
     return runs
 
 
-def _children(pages: dict[str, Page]) -> dict[str, list[str]]:
-    children: dict[str, list[str]] = {key: [] for key in pages}
-    for page in pages.values():
-        if page.parent in children:
-            children[page.parent].append(page.hash)
+def _children(blocks: dict[str, Block]) -> dict[str, list[str]]:
+    children: dict[str, list[str]] = {key: [] for key in blocks}
+    for block in blocks.values():
+        if block.parent in children:
+            children[block.parent].append(block.hash)
     return children
 
 
@@ -214,14 +214,14 @@ def _run_id(run: list[str]) -> str:
     return f"{run[0]}..{run[-1]}"
 
 
-def _node(run_id: str, run: tuple[Page, ...], owner: dict[str, str]) -> dict:
+def _node(run_id: str, run: tuple[Block, ...], owner: dict[str, str]) -> dict:
     first = run[0]
     return {
         "id": run_id,
         "parent": _visual_parent(first.parent, owner),
         "preview": _preview(first.text),
-        "pages": len(run),
-        "tokens": sum(page.tokens for page in run),
+        "blocks": len(run),
+        "tokens": sum(block.tokens for block in run),
         "medium": first.medium,
         "missing": False,
     }
@@ -255,28 +255,28 @@ def _placeholder(node_id: str) -> dict:
         "id": node_id,
         "parent": None,
         "preview": "",
-        "pages": 0,
+        "blocks": 0,
         "tokens": 0,
         "medium": "",
         "missing": True,
     }
 
 
-def _stats(pages: dict[str, Page], nodes: list[dict]) -> dict:
+def _stats(blocks: dict[str, Block], nodes: list[dict]) -> dict:
     return {
-        "pages": len(pages),
-        "tokens": sum(page.tokens for page in pages.values()),
+        "blocks": len(blocks),
+        "tokens": sum(block.tokens for block in blocks.values()),
         "nodes": len(nodes),
         "missing": sum(1 for node in nodes if node["missing"]),
     }
 
 
-def _page_detail(page: Page) -> dict:
+def _block_detail(block: Block) -> dict:
     return {
-        "hash": page.hash,
-        "text": page.text,
-        "tokens": page.tokens,
-        "medium": page.medium,
+        "hash": block.hash,
+        "text": block.text,
+        "tokens": block.tokens,
+        "medium": block.medium,
     }
 
 

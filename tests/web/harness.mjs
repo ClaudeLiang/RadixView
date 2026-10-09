@@ -66,7 +66,7 @@ export function node(id, parent, extra = {}) {
     id,
     parent,
     preview: "text " + id,
-    pages: 1,
+    blocks: 1,
     tokens: 64,
     medium: "GPU",
     missing: false,

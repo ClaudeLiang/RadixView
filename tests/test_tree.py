@@ -37,24 +37,24 @@ class TestCacheTree(unittest.TestCase):
             5188292320627455716,
             5743247540568383516,
         ]
-        texts = ["page B", "fingerprint pay", "this phone", "this device pays"]
+        texts = ["block B", "fingerprint pay", "this phone", "this device pays"]
         for block_hash, text in zip(hashes, texts):
             tree.apply_stored(_stored(block_hash, parent, tokens=64), _decode(text))
             parent = block_hash
         snapshot = tree.snapshot()
         self.assertEqual(
-            snapshot["stats"], {"pages": 4, "tokens": 256, "nodes": 2, "missing": 1}
+            snapshot["stats"], {"blocks": 4, "tokens": 256, "nodes": 2, "missing": 1}
         )
         ghost = next(node for node in snapshot["nodes"] if node["missing"])
         chain = next(node for node in snapshot["nodes"] if not node["missing"])
         self.assertEqual(ghost["id"], "missing:1137640873890580499")
         self.assertIsNone(ghost["parent"])
         self.assertEqual(chain["parent"], ghost["id"])
-        self.assertEqual(chain["pages"], 4)
-        self.assertEqual(chain["preview"], "page B")
-        pages = tree.pages_of(chain["id"])
-        self.assertEqual([page["text"] for page in pages], texts)
-        self.assertEqual(pages[0]["hash"], "-2285270490815386373")
+        self.assertEqual(chain["blocks"], 4)
+        self.assertEqual(chain["preview"], "block B")
+        blocks = tree.blocks_of(chain["id"])
+        self.assertEqual([block["text"] for block in blocks], texts)
+        self.assertEqual(blocks[0]["hash"], "-2285270490815386373")
 
     def test_a_branch_stays_visible(self):
         tree = CacheTree()
@@ -73,7 +73,7 @@ class TestCacheTree(unittest.TestCase):
         nodes = _nodes(tree)
         self.assertEqual(set(nodes), {"1..3", "4", "5"})
         self.assertEqual(nodes["4"]["parent"], "1..3")
-        self.assertEqual(nodes["1..3"]["pages"], 3)
+        self.assertEqual(nodes["1..3"]["blocks"], 3)
 
     def test_several_hashes_in_one_event_form_a_chain(self):
         tree = CacheTree()
@@ -95,15 +95,15 @@ class TestCacheTree(unittest.TestCase):
         )
         self.assertEqual(seen, [[1, 2], [3, 4]])
         node = tree.snapshot()["nodes"][0]
-        self.assertEqual(node["pages"], 2)
+        self.assertEqual(node["blocks"], 2)
         self.assertEqual(
-            [page["text"] for page in tree.pages_of(node["id"])], ["p1", "p2"]
+            [block["text"] for block in tree.blocks_of(node["id"])], ["p1", "p2"]
         )
 
-    def test_without_a_decoder_pages_have_no_text(self):
+    def test_without_a_decoder_blocks_have_no_text(self):
         tree = CacheTree()
         tree.apply_stored(_stored(1, None))
-        self.assertEqual(tree.pages_of("1")[0]["text"], "")
+        self.assertEqual(tree.blocks_of("1")[0]["text"], "")
 
     def test_a_long_preview_is_one_clipped_line(self):
         tree = CacheTree()
@@ -121,7 +121,7 @@ class TestCacheTree(unittest.TestCase):
         tree.remove([True, "x"])
         self.assertEqual(tree.snapshot()["version"], 0)
 
-    def test_removing_a_middle_page_leaves_a_missing_parent(self):
+    def test_removing_a_middle_block_leaves_a_missing_parent(self):
         tree = CacheTree()
         for block_hash, parent in [(1, None), (2, 1), (3, 2)]:
             tree.apply_stored(_stored(block_hash, parent), _decode("x"))
@@ -138,11 +138,11 @@ class TestCacheTree(unittest.TestCase):
         nodes = tree.snapshot()["nodes"]
         self.assertEqual([node["id"] for node in nodes if not node["missing"]], ["2"])
         tree.clear()
-        self.assertEqual(tree.snapshot()["stats"]["pages"], 0)
+        self.assertEqual(tree.snapshot()["stats"]["blocks"], 0)
         self.assertEqual(tree.snapshot()["nodes"], [])
 
-    def test_unknown_node_has_no_pages(self):
-        self.assertEqual(CacheTree().pages_of("nope"), [])
+    def test_unknown_node_has_no_blocks(self):
+        self.assertEqual(CacheTree().blocks_of("nope"), [])
 
     def test_a_long_chain_is_one_visual_node(self):
         tree = CacheTree()
@@ -151,7 +151,7 @@ class TestCacheTree(unittest.TestCase):
             tree.apply_stored(_stored(index, parent, tokens=1), _decode("x"))
             parent = index
         snapshot = tree.snapshot()
-        self.assertEqual(snapshot["stats"]["pages"], 3000)
+        self.assertEqual(snapshot["stats"]["blocks"], 3000)
         self.assertEqual(snapshot["stats"]["nodes"], 1)
 
 
@@ -184,7 +184,7 @@ class TestSearch(unittest.TestCase):
         self.tree.apply_stored(_stored(2, 1), _decode("Deploy rollout"))
         self.tree.apply_stored(_stored(3, 1), _decode("expense report"))
 
-    def test_matches_any_page_case_insensitively(self):
+    def test_matches_any_block_case_insensitively(self):
         self.assertEqual(self.tree.search("  deploy "), ["2"])
         self.assertEqual(self.tree.search("expense"), ["3"])
 

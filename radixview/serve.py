@@ -41,7 +41,7 @@ def serve(config: MonitorConfig, stop: Optional[threading.Event] = None) -> None
     """
     publishers = load_publishers(config.server, config.api_key)
     logger.info(
-        "watching %s page=%s dp=%s",
+        "watching %s block_size=%s dp=%s",
         config.server,
         publishers.block_size,
         len(publishers.ranks),

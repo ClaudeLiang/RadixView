@@ -44,7 +44,7 @@ class Detokenizer:
         self._warned = False
 
     def decode(self, token_ids: object) -> Optional[str]:
-        """Text for one page of token ids, or None when it cannot be decoded."""
+        """Text for one block of token ids, or None when it cannot be decoded."""
         ids = _token_ids(token_ids)
         if ids is None or self._disabled:
             return None

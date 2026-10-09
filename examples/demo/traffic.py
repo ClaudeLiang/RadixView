@@ -33,7 +33,7 @@ from radixview.tree import CacheTree
 
 logger = logging.getLogger(__name__)
 
-PAGE_TOKENS = 64
+BLOCK_TOKENS = 64
 MISSING_PARENT = 7_000_000_000_000_000_001
 _CORPUS = Path(__file__).with_name("corpus.json")
 
@@ -53,12 +53,12 @@ class DemoTraffic:
     def __init__(
         self,
         tree: CacheTree,
-        pages: int = 400,
+        blocks: int = 400,
         seed: int = 0,
         corpus: Optional[dict] = None,
     ) -> None:
         self._tree = tree
-        self._limit = pages
+        self._limit = blocks
         self._rng = random.Random(seed)
         self._corpus = corpus if corpus is not None else load_corpus()
         self._texts: dict[int, str] = {}
@@ -69,7 +69,7 @@ class DemoTraffic:
         self._root: Optional[int] = None
 
     @property
-    def pages(self) -> int:
+    def blocks(self) -> int:
         return len(self._parent)
 
     def populate(self) -> None:
@@ -78,13 +78,13 @@ class DemoTraffic:
         self._root = self._store(None, shared, "GPU")
         self._pinned.update(self._parent)
         self._store(MISSING_PARENT, self._corpus["orphan"], "GPU")
-        while self.pages < self._limit:
+        while self.blocks < self._limit:
             self.add_turn()
 
     def step(self) -> None:
         """One tick of live traffic: a new turn, then eviction down to the limit."""
         self.add_turn()
-        while self.pages > self._limit and self._evict_oldest():
+        while self.blocks > self._limit and self._evict_oldest():
             pass
 
     def add_turn(self) -> None:
@@ -114,17 +114,17 @@ class DemoTraffic:
         cursor = parent
         for text in texts:
             block_hash = self._rng.getrandbits(64) - 2**63
-            token_ids.extend(self._page_tokens(text))
+            token_ids.extend(self._block_tokens(text))
             self._link(block_hash, cursor)
             hashes.append(block_hash)
             cursor = block_hash
         self._tree.apply_stored(_stored(hashes, parent, token_ids, medium), self.decode)
         return cursor
 
-    def _page_tokens(self, text: str) -> list[int]:
+    def _block_tokens(self, text: str) -> list[int]:
         key = len(self._texts) + 1
         self._texts[key] = text
-        return [key] + [0] * (PAGE_TOKENS - 1)
+        return [key] + [0] * (BLOCK_TOKENS - 1)
 
     def _link(self, block_hash: int, parent: Optional[int]) -> None:
         self._parent[block_hash] = parent
@@ -135,7 +135,9 @@ class DemoTraffic:
             self._leaves.pop(parent, None)
 
     def _evict_oldest(self) -> bool:
-        victim = next((page for page in self._leaves if page not in self._pinned), None)
+        victim = next(
+            (block for block in self._leaves if block not in self._pinned), None
+        )
         if victim is None:
             return False
         self._drop(victim)
@@ -156,14 +158,14 @@ class DemoTraffic:
 def run_demo(
     tree: CacheTree,
     stop: threading.Event,
-    pages: int = 400,
+    blocks: int = 400,
     seed: int = 0,
     interval_s: float = 1.0,
 ) -> None:
     """Populate ``tree`` and keep it changing every ``interval_s`` until ``stop``."""
-    traffic = DemoTraffic(tree, pages, seed)
+    traffic = DemoTraffic(tree, blocks, seed)
     traffic.populate()
-    logger.info("demo traffic pages=%s", traffic.pages)
+    logger.info("demo traffic blocks=%s", traffic.blocks)
     while not stop.wait(interval_s):
         traffic.step()
 
@@ -174,6 +176,6 @@ def _stored(hashes: list, parent: Optional[int], token_ids: list, medium: str) -
         "block_hashes": hashes,
         "parent_block_hash": parent,
         "token_ids": token_ids,
-        "block_size": PAGE_TOKENS,
+        "block_size": BLOCK_TOKENS,
         "medium": medium,
     }

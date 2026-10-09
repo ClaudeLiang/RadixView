@@ -17,6 +17,6 @@ Run ``python -m examples.demo`` from a checkout. The library does not import
 this package. Prompt text lives in ``corpus.json``.
 """
 
-from examples.demo.traffic import MISSING_PARENT, PAGE_TOKENS, DemoTraffic, run_demo
+from examples.demo.traffic import BLOCK_TOKENS, MISSING_PARENT, DemoTraffic, run_demo
 
-__all__ = ["MISSING_PARENT", "PAGE_TOKENS", "DemoTraffic", "run_demo"]
+__all__ = ["BLOCK_TOKENS", "MISSING_PARENT", "DemoTraffic", "run_demo"]

@@ -37,20 +37,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local port for the page. 0 picks a free port.",
     )
     parser.add_argument(
-        "--pages",
+        "--blocks",
         type=_positive,
         default=400,
-        help="How many cache pages to keep.",
+        help="How many cache blocks to keep.",
     )
     return parser
 
 
-def serve_demo(port: int, pages: int, stop: Optional[threading.Event] = None) -> None:
-    """Serve the page until ``stop``. Without ``stop`` this blocks."""
+def serve_demo(port: int, blocks: int, stop: Optional[threading.Event] = None) -> None:
+    """Serve the page until ``stop``. Without ``stop`` this does not return."""
     tree = CacheTree()
     httpd = start_server(tree, port)
     try:
-        run_demo(tree, stop or threading.Event(), pages)
+        run_demo(tree, stop or threading.Event(), blocks)
     finally:
         stop_server(httpd)
 
@@ -62,7 +62,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     )
     args = build_parser().parse_args(argv)
     try:
-        serve_demo(args.port, args.pages)
+        serve_demo(args.port, args.blocks)
     except KeyboardInterrupt:
         pass
 

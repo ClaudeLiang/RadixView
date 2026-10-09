@@ -14,7 +14,7 @@ export function nodeTitle(node) {
 export function nodeMeta(node) {
   if (node.missing) return "parent " + shortHash(node.id.slice("missing:".length));
   const parts = [];
-  if (node.pages > 1) parts.push(node.pages + " pages");
+  if (node.blocks > 1) parts.push(node.blocks + " blocks");
   parts.push(node.tokens + " tok");
   if (node.medium) parts.push(node.medium);
   return parts.join(" · ");
@@ -22,7 +22,7 @@ export function nodeMeta(node) {
 
 export function statsLine(stats) {
   const parts = [
-    stats.pages + " pages",
+    stats.blocks + " blocks",
     stats.tokens + " tok",
     stats.nodes + " nodes",
   ];
@@ -35,8 +35,8 @@ export function hitsLine(query, ids) {
   return ids.length ? ids.length + " hits" : "no hits";
 }
 
-export function pageMeta(page) {
-  return [page.tokens + " tok", page.medium || "-", shortHash(page.hash)].join(" · ");
+export function blockMeta(block) {
+  return [block.tokens + " tok", block.medium || "-", shortHash(block.hash)].join(" · ");
 }
 
 export function shortHash(hash) {

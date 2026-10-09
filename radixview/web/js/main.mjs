@@ -1,7 +1,7 @@
 // Page wiring: poll the tree, handle pan/zoom/select/search, fill the panel.
 
-import { fetchPages, fetchTree, searchText } from "./api.mjs";
-import { clip, hitsLine, nodeTitle, pageMeta, statsLine } from "./format.mjs";
+import { fetchBlocks, fetchTree, searchText } from "./api.mjs";
+import { blockMeta, clip, hitsLine, nodeTitle, statsLine } from "./format.mjs";
 import { layoutTree, pathTo } from "./layout.mjs";
 import { drawScene } from "./render.mjs";
 import { centerOn, fitView, hitTest, initialView, panBy, zoomAt } from "./viewport.mjs";
@@ -109,7 +109,7 @@ async function select(id) {
     resize();
   }
   renderPath(ids, id);
-  renderPages(state.byId.get(id));
+  renderBlocks(state.byId.get(id));
 }
 
 function closeDetail() {
@@ -130,26 +130,26 @@ function renderPath(ids, current) {
   $("path").replaceChildren(...buttons);
 }
 
-async function renderPages(node) {
-  const box = $("pages");
+async function renderBlocks(node) {
+  const box = $("blocks");
   if (node.missing) {
     box.replaceChildren(paragraph(
-      "This page was stored before RadixView subscribed, so the stream has no text for it."));
+      "This block was stored before RadixView subscribed, so the stream has no text for it."));
     return;
   }
-  const pages = await fetchPages(node.id);
+  const blocks = await fetchBlocks(node.id);
   if (state.selected !== node.id) return;
-  box.replaceChildren(...pages.map(pageBlock));
+  box.replaceChildren(...blocks.map(blockCard));
 }
 
-function pageBlock(page) {
-  const block = document.createElement("div");
-  block.className = "page";
+function blockCard(block) {
+  const card = document.createElement("div");
+  card.className = "block-card";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = pageMeta(page);
-  block.append(meta, document.createTextNode(page.text || "(empty)"));
-  return block;
+  meta.textContent = blockMeta(block);
+  card.append(meta, document.createTextNode(block.text || "(empty)"));
+  return card;
 }
 
 function paragraph(text) {

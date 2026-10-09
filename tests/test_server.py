@@ -20,7 +20,7 @@ def _tree():
             "block_size": 1,
             "medium": "GPU",
         },
-        lambda tokens: f"page {tokens[0]}",
+        lambda tokens: f"block {tokens[0]}",
     )
     return tree
 
@@ -73,19 +73,19 @@ class TestServer(unittest.TestCase):
 
     def test_tree_snapshot_and_since(self):
         snapshot = self._json("/api/tree")
-        self.assertEqual(snapshot["stats"]["pages"], 2)
+        self.assertEqual(snapshot["stats"]["blocks"], 2)
         self.assertEqual(snapshot["nodes"][0]["id"], "7..8")
         unchanged = self._json(f"/api/tree?since={snapshot['version']}")
         self.assertEqual(unchanged, {"version": snapshot["version"], "unchanged": True})
         self.assertIn("nodes", self._json("/api/tree?since=oops"))
 
-    def test_run_pages(self):
-        pages = self._json("/api/run?id=7..8")["pages"]
-        self.assertEqual([page["text"] for page in pages], ["page 1", "page 2"])
-        self.assertEqual(self._json("/api/run")["pages"], [])
+    def test_run_blocks(self):
+        blocks = self._json("/api/run?id=7..8")["blocks"]
+        self.assertEqual([block["text"] for block in blocks], ["block 1", "block 2"])
+        self.assertEqual(self._json("/api/run")["blocks"], [])
 
     def test_search(self):
-        query = urllib.request.quote("page 2")
+        query = urllib.request.quote("block 2")
         self.assertEqual(self._json(f"/api/search?q={query}")["ids"], ["7..8"])
         self.assertEqual(self._json("/api/search")["ids"], [])
 

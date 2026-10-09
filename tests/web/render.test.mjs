@@ -19,15 +19,15 @@ function draw(sceneValue, view) {
 
 test("draws every node, edge, title, and meta of a small tree", () => {
   const nodes = [
-    node("r", null, { preview: "System prompt", pages: 5, tokens: 320 }),
+    node("r", null, { preview: "System prompt", blocks: 5, tokens: 320 }),
     node("a", "r"),
-    node("missing:9", null, { missing: true, preview: "", pages: 0, tokens: 0 }),
+    node("missing:9", null, { missing: true, preview: "", blocks: 0, tokens: 0 }),
   ];
   const { result, named } = draw(scene(nodes), { x: 20, y: 20, z: 1 });
   assert.deepStrictEqual(result, { nodes: 3, edges: 1, text: true });
   const texts = named("fillText").map((call) => call[1]);
   assert.ok(texts.includes("System prompt"));
-  assert.ok(texts.includes("5 pages · 320 tok · GPU"));
+  assert.ok(texts.includes("5 blocks · 320 tok · GPU"));
   assert.ok(texts.includes("Cached earlier"));
   assert.strictEqual(named("bezierCurveTo").length, 1);
   assert.strictEqual(named("stroke").length, 4, "one edge path plus one per node");

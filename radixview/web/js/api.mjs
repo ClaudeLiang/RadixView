@@ -5,9 +5,9 @@ export async function fetchTree(since) {
   return getJson("/api/tree" + query);
 }
 
-export async function fetchPages(id) {
+export async function fetchBlocks(id) {
   const payload = await getJson("/api/run?id=" + encodeURIComponent(id));
-  return payload.pages;
+  return payload.blocks;
 }
 
 export async function searchText(query) {

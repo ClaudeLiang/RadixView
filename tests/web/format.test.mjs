@@ -5,7 +5,7 @@ import {
   hitsLine,
   nodeMeta,
   nodeTitle,
-  pageMeta,
+  blockMeta,
   shortHash,
   statsLine,
 } from "../../radixview/web/js/format.mjs";
@@ -27,11 +27,11 @@ test("nodeTitle falls back for empty and missing nodes", () => {
   );
 });
 
-test("nodeMeta shows pages only for a collapsed chain", () => {
+test("nodeMeta shows blocks only for a collapsed chain", () => {
   assert.strictEqual(nodeMeta(node("1", null)), "64 tok · GPU");
   assert.strictEqual(
-    nodeMeta(node("1..3", null, { pages: 3, tokens: 192, medium: "CPU_PINNED" })),
-    "3 pages · 192 tok · CPU_PINNED",
+    nodeMeta(node("1..3", null, { blocks: 3, tokens: 192, medium: "CPU_PINNED" })),
+    "3 blocks · 192 tok · CPU_PINNED",
   );
   assert.strictEqual(nodeMeta(node("1", null, { medium: "" })), "64 tok");
   assert.strictEqual(
@@ -42,23 +42,23 @@ test("nodeMeta shows pages only for a collapsed chain", () => {
 
 test("statsLine mentions missing parents only when there are some", () => {
   assert.strictEqual(
-    statsLine({ pages: 4, tokens: 256, nodes: 2, missing: 0 }),
-    "4 pages · 256 tok · 2 nodes",
+    statsLine({ blocks: 4, tokens: 256, nodes: 2, missing: 0 }),
+    "4 blocks · 256 tok · 2 nodes",
   );
   assert.strictEqual(
-    statsLine({ pages: 4, tokens: 256, nodes: 2, missing: 1 }),
-    "4 pages · 256 tok · 2 nodes · 1 missing",
+    statsLine({ blocks: 4, tokens: 256, nodes: 2, missing: 1 }),
+    "4 blocks · 256 tok · 2 nodes · 1 missing",
   );
 });
 
-test("hitsLine and pageMeta", () => {
+test("hitsLine and blockMeta", () => {
   assert.strictEqual(hitsLine("", []), "");
   assert.strictEqual(hitsLine("x", []), "no hits");
   assert.strictEqual(hitsLine("x", ["1", "2"]), "2 hits");
   assert.strictEqual(
-    pageMeta({ tokens: 64, medium: "GPU", hash: "-2285270490815386373" }),
+    blockMeta({ tokens: 64, medium: "GPU", hash: "-2285270490815386373" }),
     "64 tok · GPU · …15386373",
   );
-  assert.strictEqual(pageMeta({ tokens: 1, medium: "", hash: "7" }), "1 tok · - · 7");
+  assert.strictEqual(blockMeta({ tokens: 1, medium: "", hash: "7" }), "1 tok · - · 7");
   assert.strictEqual(shortHash(42), "42");
 });

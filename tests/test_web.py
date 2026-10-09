@@ -16,9 +16,9 @@ _MOCKS = {"demo": 400, "large": 20000}
 
 
 def _write_mocks(directory: str) -> None:
-    for name, pages in _MOCKS.items():
+    for name, blocks in _MOCKS.items():
         tree = CacheTree()
-        DemoTraffic(tree, pages, seed=1).populate()
+        DemoTraffic(tree, blocks, seed=1).populate()
         Path(directory, f"{name}.json").write_text(
             json.dumps(tree.snapshot(), ensure_ascii=False), encoding="utf-8"
         )

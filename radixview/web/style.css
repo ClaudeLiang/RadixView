@@ -143,7 +143,7 @@ aside.open { display: block; }
   border-color: var(--accent);
 }
 
-.page {
+.block-card {
   padding: 12px 0;
   border-top: 1px solid var(--line);
   white-space: pre-wrap;

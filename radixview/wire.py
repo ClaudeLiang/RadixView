@@ -177,7 +177,7 @@ def _stored_fields(event: dict) -> list[str]:
     tokens = _as_list(event.get("token_ids"))
     hashes = _as_list(event.get("block_hashes"))
     fields = [f"blocks={len(hashes)}", f"tokens={len(tokens)}"]
-    _append_page(fields, event.get("block_size"))
+    _append_block_size(fields, event.get("block_size"))
     fields.append(f"medium={_or_dash(event.get('medium'))}")
     fields.append(f"parent={_or_dash(event.get('parent_block_hash'))}")
     _append_single_hash(fields, hashes)
@@ -185,9 +185,9 @@ def _stored_fields(event: dict) -> list[str]:
     return fields
 
 
-def _append_page(fields: list[str], block_size: object) -> None:
+def _append_block_size(fields: list[str], block_size: object) -> None:
     if block_size is not None:
-        fields.append(f"page={block_size}")
+        fields.append(f"block_size={block_size}")
 
 
 def _append_single_hash(fields: list[str], hashes: list) -> None:
