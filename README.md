@@ -6,21 +6,21 @@ A block is the unit a KV event reports: `page_size` tokens, multiplied by `dcp_s
 
 RadixView can run on a different machine from the GPU server. It does not route requests, and it does not read the server's radix tree in-process.
 
-![The RadixView page: a shared system prompt collapsed into one node, sessions branching off it, and the text of each block in the side panel](docs/images/page.png)
+![The RadixView page: a shared system prompt collapsed into one node, sessions branching off it, and the text of each block in the side panel](https://raw.githubusercontent.com/ClaudeLiang/RadixView/main/docs/images/page.png)
 
 ## Install
 
-Python 3.10 or newer. From a checkout:
+Python 3.10 or newer.
 
 ```bash
-pip install -e .
+pip install radixview
 ```
 
-This installs the `radixview` command.
+This installs the `radixview` command. From a checkout of this repository, `pip install -e .` installs that same command from the working tree.
 
 ## Try the demo
 
-No GPU and no model required:
+No GPU and no model required. The demo is part of the repository, not the pip package. From a checkout:
 
 ```bash
 python -m examples.demo
