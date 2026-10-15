@@ -144,6 +144,53 @@ class TestCacheTree(unittest.TestCase):
     def test_unknown_node_has_no_blocks(self):
         self.assertEqual(CacheTree().blocks_of("nope"), [])
 
+    def test_node_blocks_follow_the_chain_and_keep_missing_nodes(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, 9), _decode("seen"))
+        tree.apply_stored(_stored(2, 1), _decode("next"))
+        document = tree.node_blocks()
+        self.assertEqual(document["version"], tree.snapshot()["version"])
+        self.assertEqual(document["stats"]["missing"], 1)
+        self.assertEqual(document["stats"]["nodes"], len(document["nodes"]))
+        blocks = sum(len(node["blocks"]) for node in document["nodes"])
+        self.assertEqual(document["stats"]["blocks"], blocks)
+        by_id = {node["id"]: node for node in document["nodes"]}
+        self.assertEqual(by_id["missing:9"]["blocks"], [])
+        self.assertTrue(by_id["missing:9"]["missing"])
+        self.assertIsNone(by_id["missing:9"]["parent"])
+        chain = by_id["1..2"]
+        self.assertEqual(chain["parent"], "missing:9")
+        self.assertEqual(chain["medium"], "GPU")
+        self.assertFalse(chain["missing"])
+        self.assertEqual(
+            [
+                (block["hash"], block["parent"], block["text"])
+                for block in chain["blocks"]
+            ],
+            [("1", "9", "seen"), ("2", "1", "next")],
+        )
+        self.assertEqual(chain["blocks"][0]["tokens"], 4)
+        self.assertEqual(chain["blocks"][0]["medium"], "GPU")
+
+    def test_node_blocks_record_each_branch(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("root"))
+        tree.apply_stored(_stored(2, 1), _decode("left"))
+        tree.apply_stored(_stored(3, 1), _decode("right"))
+        by_id = {node["id"]: node for node in tree.node_blocks()["nodes"]}
+        self.assertIsNone(by_id["1"]["parent"])
+        self.assertIsNone(by_id["1"]["blocks"][0]["parent"])
+        self.assertEqual(by_id["2"]["parent"], "1")
+        self.assertEqual(by_id["2"]["blocks"][0]["parent"], "1")
+        self.assertEqual(by_id["2"]["blocks"][0]["text"], "left")
+        self.assertEqual(by_id["3"]["blocks"][0]["text"], "right")
+
+    def test_an_empty_tree_exports_no_nodes(self):
+        document = CacheTree().node_blocks()
+        self.assertEqual(document["nodes"], [])
+        self.assertEqual(document["stats"]["blocks"], 0)
+        self.assertEqual(document["version"], 0)
+
     def test_a_long_chain_is_one_visual_node(self):
         tree = CacheTree()
         parent = None

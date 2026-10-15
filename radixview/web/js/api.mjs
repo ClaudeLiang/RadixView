@@ -15,6 +15,10 @@ export async function searchText(query) {
   return payload.ids;
 }
 
+export async function fetchNodeBlocks() {
+  return getJson("/api/node-blocks");
+}
+
 async function getJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(url + " " + response.status);

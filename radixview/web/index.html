@@ -11,9 +11,13 @@
   <header>
     <h1>RadixView</h1>
     <div id="stats">Waiting for cache events</div>
-    <input id="query" type="search" placeholder="Search text" autocomplete="off">
-    <span id="hits"></span>
-    <button id="fit" type="button" title="Shortcut: F">Fit</button>
+    <div id="tools">
+      <input id="query" type="search" placeholder="Search text" autocomplete="off">
+      <span id="hits"></span>
+      <span id="export-error" role="status"></span>
+      <button id="export" type="button" title="Download node blocks as JSON">Export</button>
+      <button id="fit" type="button" title="Shortcut: F">Fit</button>
+    </div>
   </header>
   <main>
     <div id="stage">

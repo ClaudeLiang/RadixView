@@ -51,6 +51,9 @@ class TestServer(unittest.TestCase):
         self.assertTrue(content_type.startswith("text/html"))
         self.assertIn(b'href="/style.css"', body)
         self.assertIn(b'src="/js/main.mjs"', body)
+        self.assertIn(b'id="export"', body)
+        self.assertIn(b'id="export-error"', body)
+        self.assertIn(b'id="tools"', body)
 
     def test_every_asset_is_served_with_its_type(self):
         types = {".css": "text/css", ".html": "text/html", ".mjs": "text/javascript"}
@@ -88,6 +91,17 @@ class TestServer(unittest.TestCase):
         query = urllib.request.quote("block 2")
         self.assertEqual(self._json(f"/api/search?q={query}")["ids"], ["7..8"])
         self.assertEqual(self._json("/api/search")["ids"], [])
+
+    def test_node_blocks(self):
+        document = self._json("/api/node-blocks")
+        self.assertEqual(document["stats"]["blocks"], 2)
+        node = document["nodes"][0]
+        self.assertEqual(node["id"], "7..8")
+        self.assertEqual(
+            [block["text"] for block in node["blocks"]], ["block 1", "block 2"]
+        )
+        self.assertIsNone(node["blocks"][0]["parent"])
+        self.assertEqual(node["blocks"][1]["parent"], "7")
 
 
 class TestStartServer(unittest.TestCase):

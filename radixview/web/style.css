@@ -24,12 +24,21 @@ html, body {
   font: 14px/1.45 var(--font);
 }
 
-header {
-  height: 52px;
+body {
   display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+header {
+  flex: none;
+  min-height: 52px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  column-gap: 16px;
+  row-gap: 8px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -45,14 +54,40 @@ header h1 {
   font-variant-numeric: tabular-nums;
 }
 
-header input {
+#stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
   margin-left: auto;
+  max-width: 100%;
+}
+
+header input {
   width: 240px;
+  max-width: 100%;
   padding: 6px 10px;
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+
+#export-error {
+  color: var(--missing);
+}
+
+#export-error:empty {
+  display: none;
 }
 
 header button {
@@ -64,8 +99,14 @@ header button {
   cursor: pointer;
 }
 
+header button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 main {
-  height: calc(100% - 52px);
+  flex: 1;
+  min-height: 0;
   display: flex;
 }
 
@@ -73,6 +114,7 @@ main {
   position: relative;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 canvas {
