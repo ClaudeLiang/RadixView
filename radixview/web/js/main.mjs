@@ -1,6 +1,7 @@
 // Page wiring: poll the tree, handle pan/zoom/select/search, fill the panel.
 
-import { fetchBlocks, fetchTree, searchText } from "./api.mjs";
+import { fetchBlocks, fetchNodeBlocks, fetchTree, searchText } from "./api.mjs";
+import { exportBody, exportFilename } from "./export.mjs";
 import { blockMeta, clip, hitsLine, nodeTitle, statsLine } from "./format.mjs";
 import { layoutTree, pathTo } from "./layout.mjs";
 import { drawScene } from "./render.mjs";
@@ -25,6 +26,7 @@ const state = {
   path: null,
   highlight: null,
   query: "",
+  stats: null,
   drag: null,
   dirty: true,
 };
@@ -72,13 +74,21 @@ function fit() {
   state.dirty = true;
 }
 
+function showStats() {
+  $("stats").textContent = statsLine(state.stats);
+}
+
 function applyTree(payload) {
-  if (payload.unchanged) return;
+  if (payload.unchanged) {
+    if (state.stats) showStats();
+    return;
+  }
   state.version = payload.version;
   state.nodes = payload.nodes;
   state.byId = new Map(payload.nodes.map((node) => [node.id, node]));
   state.layout = layoutTree(payload.nodes);
-  $("stats").textContent = statsLine(payload.stats);
+  state.stats = payload.stats;
+  showStats();
   $("empty").style.display = payload.nodes.length ? "none" : "grid";
   if (!state.fitted && payload.nodes.length) {
     state.fitted = true;
@@ -236,6 +246,36 @@ function onQueryKey(event) {
   if (hit) focus(hit.id);
 }
 
+async function onExport() {
+  const button = $("export");
+  button.disabled = true;
+  $("export-error").textContent = "";
+  try {
+    const payload = await fetchNodeBlocks();
+    download(exportFilename(payload.version), exportBody(payload));
+    if (state.stats) showStats();
+  } catch (error) {
+    $("export-error").textContent = "Export failed";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// Hold the URL until the next export. A save dialog can stay open longer
+// than any short timer, and revoking early writes an empty file.
+let downloadUrl = "";
+
+function download(name, text) {
+  if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+  downloadUrl = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 canvas.addEventListener("pointerdown", onPointerDown);
 canvas.addEventListener("wheel", onWheel, { passive: false });
 window.addEventListener("pointermove", onPointerMove);
@@ -244,6 +284,7 @@ window.addEventListener("resize", resize);
 window.addEventListener("keydown", onKey);
 $("query").addEventListener("input", onQuery);
 $("query").addEventListener("keydown", onQueryKey);
+$("export").addEventListener("click", onExport);
 $("fit").addEventListener("click", fit);
 
 resize();

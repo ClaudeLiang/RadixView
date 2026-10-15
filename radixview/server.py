@@ -102,6 +102,8 @@ def _api(tree: CacheTree, path: str, query: dict) -> tuple[HTTPStatus, str, byte
         return _json({"blocks": tree.blocks_of(_param(query, "id"))})
     if path == "/api/search":
         return _json({"ids": tree.search(_param(query, "q"))})
+    if path == "/api/node-blocks":
+        return _json(tree.node_blocks())
     return _not_found()
 
 

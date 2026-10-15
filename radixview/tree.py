@@ -99,6 +99,16 @@ class CacheTree:
         """Every block inside one visual node, in prefix order."""
         return [_block_detail(block) for block in self.view().runs.get(node_id, ())]
 
+    def node_blocks(self) -> dict:
+        """Every visual node and the blocks inside it, for download.
+
+        A node with ``missing`` set has an empty ``blocks`` list. It stands
+        for a parent that was stored before the subscriber attached.
+        """
+        view = self.view()
+        nodes = [_exported_node(node, view.runs) for node in view.nodes]
+        return {"version": view.version, "stats": view.stats, "nodes": nodes}
+
     def search(self, query: str) -> list[str]:
         """Ids of the visual nodes whose block text contains ``query``."""
         needle = query.strip().lower()
@@ -274,6 +284,26 @@ def _stats(blocks: dict[str, Block], nodes: list[dict]) -> dict:
 def _block_detail(block: Block) -> dict:
     return {
         "hash": block.hash,
+        "text": block.text,
+        "tokens": block.tokens,
+        "medium": block.medium,
+    }
+
+
+def _exported_node(node: dict, runs: dict[str, tuple[Block, ...]]) -> dict:
+    return {
+        "id": node["id"],
+        "parent": node["parent"],
+        "missing": node["missing"],
+        "medium": node["medium"],
+        "blocks": [_block_export(block) for block in runs.get(node["id"], ())],
+    }
+
+
+def _block_export(block: Block) -> dict:
+    return {
+        "hash": block.hash,
+        "parent": block.parent,
         "text": block.text,
         "tokens": block.tokens,
         "medium": block.medium,

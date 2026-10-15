@@ -89,6 +89,27 @@ The tree reads left to right, like a prompt. A straight chain of blocks collapse
 
 Click a node to open the side panel. It shows the path from the root and the full text of every block in the node. The search box matches the full block text, not only the preview. Search hits are outlined in green, and the selected node and its path from the root in blue.
 
+Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The same document is `GET /api/node-blocks`. Each entry is one visual node: its id, the id of its parent node, its medium, and `blocks` in prefix order. A block has its hash, the hash of its parent block, the decoded text, the token count, and the medium. A node with `"missing": true` is a parent stored before RadixView subscribed; its `blocks` list is empty. `stats` counts blocks, tokens, nodes, and missing parents for the whole tree.
+
+```json
+{
+  "version": 2,
+  "stats": {"blocks": 2, "tokens": 128, "nodes": 1, "missing": 0},
+  "nodes": [
+    {
+      "id": "7..8",
+      "parent": null,
+      "missing": false,
+      "medium": "GPU",
+      "blocks": [
+        {"hash": "7", "parent": null, "text": "User: How do I", "tokens": 64, "medium": "GPU"},
+        {"hash": "8", "parent": "7", "text": " handle GPU quota?", "tokens": 64, "medium": "GPU"}
+      ]
+    }
+  ]
+}
+```
+
 Drag or scroll to pan. Cmd/Ctrl + scroll zooms. `F` fits the whole tree. `Esc` closes the side panel.
 
 ## Development
@@ -119,7 +140,7 @@ The page tests run under Node, through `tests/test_web.py`, on snapshots generat
 | `examples/demo/` | Synthetic traffic. Not part of the library |
 | `tests/` | Python tests. `tests/web/` tests the page modules |
 
-`radixview/web/js/layout.mjs`, `viewport.mjs`, and `render.mjs` are pure and have no DOM. `main.mjs` wires them to the page.
+`radixview/web/js/layout.mjs`, `viewport.mjs`, `render.mjs`, and `export.mjs` are pure and have no DOM. `main.mjs` wires them to the page.
 
 ## License
 
