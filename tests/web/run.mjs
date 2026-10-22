@@ -1,4 +1,5 @@
-// Entry point: node tests/web/run.mjs (tests/test_web.py runs it with mocks).
+// Entry point: node tests/web/run.mjs. Tests on demo snapshots are skipped
+// unless tests/test_web.py runs this with RADIXVIEW_MOCK_DIR set.
 
 import { run } from "./harness.mjs";
 import "./format.test.mjs";

@@ -38,6 +38,7 @@ class TestWeb(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("FAIL", result.stdout)
+        self.assertNotIn("SKIP", result.stdout)
 
 
 if __name__ == "__main__":

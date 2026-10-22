@@ -131,7 +131,7 @@ python -m unittest discover -s tests
 
 Style follows SGLang: Apache-2.0 file headers, ruff format at line length 88, isort with the black profile, and ruff rules `F401`, `F821`, `F823`, and `UP037`. Ruff's `C901` keeps every function's cyclomatic complexity below 10.
 
-The page tests run under Node, through `tests/test_web.py`, on snapshots generated from the demo. They are skipped when `node` is not installed. Running the page itself does not need Node.
+The page tests run under Node, through `tests/test_web.py`, on snapshots generated from the demo. They are skipped when `node` is not installed. Running the page itself does not need Node. While working on the page, `node tests/web/run.mjs` runs them directly and skips the ones that need demo snapshots; `python -m unittest discover -s tests -p test_web.py` runs all of them.
 
 | Path | Contents |
 | --- | --- |

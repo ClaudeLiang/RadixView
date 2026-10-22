@@ -3,6 +3,9 @@
 import { readFileSync } from "fs";
 
 const cases = [];
+const FULL_RUN = "python -m unittest discover -s tests -p test_web.py";
+
+class Skip extends Error {}
 
 export function test(name, fn) {
   cases.push({ name, fn });
@@ -10,23 +13,31 @@ export function test(name, fn) {
 
 export async function run() {
   let failed = 0;
+  let skipped = 0;
   for (const { name, fn } of cases) {
     try {
       await fn();
       console.log("ok   " + name);
     } catch (error) {
+      if (error instanceof Skip) {
+        skipped += 1;
+        console.log("SKIP " + name + " (" + error.message + ")");
+        continue;
+      }
       failed += 1;
       console.log("FAIL " + name + "\n" + error.stack);
     }
   }
-  console.log(`${cases.length - failed}/${cases.length} passed`);
+  const passed = cases.length - failed - skipped;
+  console.log(`${passed} passed, ${skipped} skipped, ${failed} failed`);
+  if (skipped) console.log("Run every test on demo snapshots with: " + FULL_RUN);
   return failed;
 }
 
 // Snapshots written by tests/test_web.py from examples/demo traffic.
 export function mockSnapshot(name) {
   const dir = process.env.RADIXVIEW_MOCK_DIR;
-  if (!dir) throw new Error("RADIXVIEW_MOCK_DIR is not set; run tests/test_web.py");
+  if (!dir) throw new Skip("needs demo snapshots");
   return JSON.parse(readFileSync(`${dir}/${name}.json`, "utf8"));
 }
 
