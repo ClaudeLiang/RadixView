@@ -13,10 +13,18 @@
 # ==============================================================================
 """Radix tree rebuilt from KV-cache events.
 
-A straight chain of blocks collapses into one visual node, so a long prompt
-does not become a long line of boxes. Branch points stay separate nodes.
-A block whose parent was stored before the subscriber attached hangs off a
-placeholder node marked ``missing``.
+A straight chain of blocks collapses into one visual node while the blocks
+occupy the same tiers, so a long prompt does not become a long line of boxes.
+A branch, or a change of tier, starts a new node. A block whose parent was
+stored before the subscriber attached hangs off a placeholder node marked
+``missing``.
+
+One block hash can occupy more than one tier. ``BlockStored`` adds the
+event's tier and decodes text only when the block has none yet.
+``BlockRemoved`` drops that tier, and drops the block once none remain. A
+removal without a tier drops every copy; one whose tier is unreadable, such
+as an empty string, is ignored. Tier names are upper-cased, and SGLang's
+``CPU_PINNED`` host memory is stored as ``CPU``.
 
 Readers get an immutable view that is rebuilt only after a mutation, so a
 page polling once a second costs nothing while the cache is idle.
@@ -32,17 +40,20 @@ Decode = Callable[[list], Optional[str]]
 
 _PREVIEW_CHARS = 80
 _SEARCH_LIMIT = 500
+_TIER_ORDER = ("GPU", "CPU", "DISK", "EXTERNAL")
+_TIER_ALIASES = {"CPU_PINNED": "CPU"}
+_MISSING_PREFIX = "missing:"
 
 
 @dataclass(frozen=True, slots=True)
 class Block:
-    """One resident cache block."""
+    """One radix block and every tier it currently occupies."""
 
     hash: str
     parent: Optional[str]
     text: str
     tokens: int
-    medium: str
+    media: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +65,7 @@ class TreeView:
     stats: dict
     runs: dict[str, tuple[Block, ...]]
     haystacks: dict[str, str]
+    owner: dict[str, str]
 
 
 class CacheTree:
@@ -66,20 +78,24 @@ class CacheTree:
         self._view: Optional[TreeView] = None
 
     def apply_stored(self, event: dict, decode: Optional[Decode] = None) -> None:
-        """Insert the blocks of one ``BlockStored`` event."""
-        blocks = [_block(spec, decode) for spec in _stored_specs(event)]
-        if not blocks:
+        """Add the tiers of one ``BlockStored`` event."""
+        specs = _stored_specs(event)
+        if not specs:
+            return
+        known = self._known_texts(specs)
+        incoming = [_incoming(spec, known.get(spec.hash), decode) for spec in specs]
+        with self._lock:
+            if _commit_all(self._blocks, incoming):
+                self._version += 1
+
+    def remove(self, hashes: list, medium: Optional[str] = None) -> None:
+        """Drop one tier, or every tier when ``medium`` is ``None``."""
+        keys = [key for key in map(_hash_key, hashes) if key is not None]
+        tier = None if medium is None else _medium_name(medium)
+        if not keys or (medium is not None and tier is None):
             return
         with self._lock:
-            self._blocks.update((block.hash, block) for block in blocks)
-            self._version += 1
-
-    def remove(self, hashes: list) -> None:
-        """Drop the blocks named by a ``BlockRemoved`` event."""
-        keys = [key for key in map(_hash_key, hashes) if key is not None]
-        with self._lock:
-            removed = [self._blocks.pop(key, None) for key in keys]
-            if any(removed):
+            if _drop_all(self._blocks, keys, tier):
                 self._version += 1
 
     def clear(self) -> None:
@@ -98,6 +114,14 @@ class CacheTree:
     def blocks_of(self, node_id: str) -> list[dict]:
         """Every block inside one visual node, in prefix order."""
         return [_block_detail(block) for block in self.view().runs.get(node_id, ())]
+
+    def locate(self, node_id: str) -> Optional[str]:
+        """The visual node that now holds the first block of ``node_id``.
+
+        Node ids change when a chain splits or joins, so the page uses this
+        to keep its selection. ``None`` when that block is gone.
+        """
+        return self.view().owner.get(_first_hash(node_id))
 
     def node_blocks(self) -> dict:
         """Every visual node and the blocks inside it, for download.
@@ -131,6 +155,11 @@ class CacheTree:
                 self._view = view
         return view
 
+    def _known_texts(self, specs: list[_Spec]) -> dict[str, str]:
+        with self._lock:
+            found = [self._blocks.get(spec.hash) for spec in specs]
+        return {block.hash: block.text for block in found if block and block.text}
+
 
 @dataclass(frozen=True, slots=True)
 class _Spec:
@@ -145,7 +174,7 @@ def _stored_specs(event: dict) -> list[_Spec]:
     chunks = _chunks(
         _as_list(event.get("token_ids")), len(hashes), event.get("block_size")
     )
-    medium = str(event.get("medium") or "GPU")
+    medium = _stored_medium(event.get("medium"))
     parent = _hash_key(event.get("parent_block_hash"))
     specs = []
     for key, tokens in zip(hashes, chunks):
@@ -163,11 +192,74 @@ def _chunks(tokens: list, count: int, block_size: object) -> list[list]:
     return [tokens[start:end] for start, end in zip(starts, ends)]
 
 
-def _block(spec: _Spec, decode: Optional[Decode]) -> Block:
-    text = ""
-    if decode is not None and spec.tokens:
-        text = decode(spec.tokens) or ""
-    return Block(spec.hash, spec.parent, text, len(spec.tokens), spec.medium)
+def _incoming(spec: _Spec, text: Optional[str], decode: Optional[Decode]) -> Block:
+    if text is None:
+        text = _decoded(spec.tokens, decode)
+    return Block(spec.hash, spec.parent, text, len(spec.tokens), (spec.medium,))
+
+
+def _decoded(tokens: list, decode: Optional[Decode]) -> str:
+    if decode is None or not tokens:
+        return ""
+    return decode(tokens) or ""
+
+
+def _commit_all(blocks: dict[str, Block], incoming: list[Block]) -> bool:
+    changed = False
+    for block in incoming:
+        changed |= _commit(blocks, block)
+    return changed
+
+
+def _commit(blocks: dict[str, Block], incoming: Block) -> bool:
+    current = blocks.get(incoming.hash)
+    merged = incoming if current is None else _merge(current, incoming)
+    if merged == current:
+        return False
+    blocks[incoming.hash] = merged
+    return True
+
+
+def _merge(current: Block, incoming: Block) -> Block:
+    return Block(
+        current.hash,
+        current.parent if current.parent is not None else incoming.parent,
+        current.text or incoming.text,
+        current.tokens or incoming.tokens,
+        _union(current.media, incoming.media),
+    )
+
+
+def _drop_all(blocks: dict[str, Block], keys: list[str], medium: Optional[str]) -> bool:
+    changed = False
+    for key in keys:
+        changed |= _drop_one(blocks, key, medium)
+    return changed
+
+
+def _drop_one(blocks: dict[str, Block], key: str, medium: Optional[str]) -> bool:
+    block = blocks.get(key)
+    if block is None:
+        return False
+    if medium is None:
+        del blocks[key]
+        return True
+    return _drop_tier(blocks, block, medium)
+
+
+def _drop_tier(blocks: dict[str, Block], block: Block, medium: str) -> bool:
+    if medium not in block.media:
+        return False
+    left = tuple(name for name in block.media if name != medium)
+    if not left:
+        del blocks[block.hash]
+    else:
+        blocks[block.hash] = _without_tier(block, left)
+    return True
+
+
+def _without_tier(block: Block, media: tuple[str, ...]) -> Block:
+    return Block(block.hash, block.parent, block.text, block.tokens, media)
 
 
 def _build_view(blocks: dict[str, Block], version: int) -> TreeView:
@@ -179,7 +271,7 @@ def _build_view(blocks: dict[str, Block], version: int) -> TreeView:
         run_id: "\n".join(block.text for block in run).lower()
         for run_id, run in runs.items()
     }
-    return TreeView(version, nodes, _stats(blocks, nodes), runs, haystacks)
+    return TreeView(version, nodes, _stats(blocks, nodes), runs, haystacks, owner)
 
 
 def _runs(blocks: dict[str, Block]) -> dict[str, tuple[Block, ...]]:
@@ -192,7 +284,7 @@ def _runs(blocks: dict[str, Block]) -> dict[str, tuple[Block, ...]]:
         head = stack.pop()
         if head in seen:
             continue
-        run = _unary_run(head, children, seen)
+        run = _unary_run(head, children, blocks, seen)
         runs[_run_id(run)] = tuple(blocks[key] for key in run)
         stack.extend(reversed(children[run[-1]]))
     return runs
@@ -206,16 +298,34 @@ def _children(blocks: dict[str, Block]) -> dict[str, list[str]]:
     return children
 
 
-def _unary_run(head: str, children: dict[str, list[str]], seen: set[str]) -> list[str]:
+def _unary_run(
+    head: str,
+    children: dict[str, list[str]],
+    blocks: dict[str, Block],
+    seen: set[str],
+) -> list[str]:
     run = []
     cursor = head
     while cursor not in seen:
         run.append(cursor)
         seen.add(cursor)
-        if len(children[cursor]) != 1:
+        nxt = _same_tier_child(cursor, children, blocks)
+        if nxt is None:
             break
-        cursor = children[cursor][0]
+        cursor = nxt
     return run
+
+
+def _same_tier_child(
+    cursor: str, children: dict[str, list[str]], blocks: dict[str, Block]
+) -> Optional[str]:
+    kids = children[cursor]
+    if len(kids) != 1:
+        return None
+    nxt = kids[0]
+    if blocks[nxt].media != blocks[cursor].media:
+        return None
+    return nxt
 
 
 def _run_id(run: list[str]) -> str:
@@ -232,7 +342,7 @@ def _node(run_id: str, run: tuple[Block, ...], owner: dict[str, str]) -> dict:
         "preview": _preview(first.text),
         "blocks": len(run),
         "tokens": sum(block.tokens for block in run),
-        "medium": first.medium,
+        "media": list(first.media),
         "missing": False,
     }
 
@@ -240,7 +350,11 @@ def _node(run_id: str, run: tuple[Block, ...], owner: dict[str, str]) -> dict:
 def _visual_parent(parent: Optional[str], owner: dict[str, str]) -> Optional[str]:
     if parent is None:
         return None
-    return owner.get(parent, f"missing:{parent}")
+    return owner.get(parent, _MISSING_PREFIX + parent)
+
+
+def _first_hash(node_id: str) -> str:
+    return node_id.removeprefix(_MISSING_PREFIX).split("..", 1)[0]
 
 
 def _preview(text: str) -> str:
@@ -267,7 +381,7 @@ def _placeholder(node_id: str) -> dict:
         "preview": "",
         "blocks": 0,
         "tokens": 0,
-        "medium": "",
+        "media": [],
         "missing": True,
     }
 
@@ -278,7 +392,27 @@ def _stats(blocks: dict[str, Block], nodes: list[dict]) -> dict:
         "tokens": sum(block.tokens for block in blocks.values()),
         "nodes": len(nodes),
         "missing": sum(1 for node in nodes if node["missing"]),
+        "tiers": _tiers(blocks),
     }
+
+
+def _tiers(blocks: dict[str, Block]) -> dict[str, dict]:
+    counts: dict[str, list[int]] = {}
+    for block in blocks.values():
+        for name in block.media:
+            tier = counts.setdefault(name, [0, 0])
+            tier[0] += 1
+            tier[1] += block.tokens
+    return {
+        name: {"blocks": counts[name][0], "tokens": counts[name][1]}
+        for name in _tier_names(counts)
+    }
+
+
+def _tier_names(counts: dict[str, list[int]]) -> list[str]:
+    ordered = [name for name in _TIER_ORDER if name in counts]
+    ordered.extend(sorted(name for name in counts if name not in _TIER_ORDER))
+    return ordered
 
 
 def _block_detail(block: Block) -> dict:
@@ -286,7 +420,7 @@ def _block_detail(block: Block) -> dict:
         "hash": block.hash,
         "text": block.text,
         "tokens": block.tokens,
-        "medium": block.medium,
+        "media": list(block.media),
     }
 
 
@@ -295,7 +429,7 @@ def _exported_node(node: dict, runs: dict[str, tuple[Block, ...]]) -> dict:
         "id": node["id"],
         "parent": node["parent"],
         "missing": node["missing"],
-        "medium": node["medium"],
+        "media": node["media"],
         "blocks": [_block_export(block) for block in runs.get(node["id"], ())],
     }
 
@@ -306,8 +440,32 @@ def _block_export(block: Block) -> dict:
         "parent": block.parent,
         "text": block.text,
         "tokens": block.tokens,
-        "medium": block.medium,
+        "media": list(block.media),
     }
+
+
+def _union(left: tuple[str, ...], right: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(sorted(set(left) | set(right), key=_tier_rank))
+
+
+def _tier_rank(name: str) -> tuple:
+    try:
+        return (0, _TIER_ORDER.index(name))
+    except ValueError:
+        return (1, name)
+
+
+def _stored_medium(raw: object) -> str:
+    return _medium_name(raw) or "GPU"
+
+
+def _medium_name(raw: object) -> Optional[str]:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip().upper()
+    if not text:
+        return None
+    return _TIER_ALIASES.get(text, text)
 
 
 def _hash_key(raw: object) -> Optional[str]:

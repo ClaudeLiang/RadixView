@@ -81,7 +81,7 @@ class TestDemoTraffic(unittest.TestCase):
         view = tree.view()
         blocks = [block for run in view.runs.values() for block in run]
         self.assertTrue(all(block.text for block in blocks))
-        self.assertEqual({block.medium for block in blocks}, {"GPU", "CPU_PINNED"})
+        self.assertEqual({block.media for block in blocks}, {("GPU",), ("CPU",)})
 
     def test_the_same_seed_builds_the_same_tree(self):
         first, _ = _populated(seed=3)

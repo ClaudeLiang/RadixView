@@ -54,6 +54,8 @@ class TestServer(unittest.TestCase):
         self.assertIn(b'id="export"', body)
         self.assertIn(b'id="export-error"', body)
         self.assertIn(b'id="tools"', body)
+        self.assertIn(b'data-tier="GPU"', body)
+        self.assertIn(b'data-tier="CPU"', body)
 
     def test_every_asset_is_served_with_its_type(self):
         types = {".css": "text/css", ".html": "text/html", ".mjs": "text/javascript"}
@@ -87,6 +89,11 @@ class TestServer(unittest.TestCase):
         self.assertEqual([block["text"] for block in blocks], ["block 1", "block 2"])
         self.assertEqual(self._json("/api/run")["blocks"], [])
 
+    def test_locate(self):
+        self.assertEqual(self._json("/api/locate?id=7")["id"], "7..8")
+        self.assertIsNone(self._json("/api/locate?id=99")["id"])
+        self.assertIsNone(self._json("/api/locate")["id"])
+
     def test_search(self):
         query = urllib.request.quote("block 2")
         self.assertEqual(self._json(f"/api/search?q={query}")["ids"], ["7..8"])
@@ -102,6 +109,8 @@ class TestServer(unittest.TestCase):
         )
         self.assertIsNone(node["blocks"][0]["parent"])
         self.assertEqual(node["blocks"][1]["parent"], "7")
+        self.assertEqual(node["media"], ["GPU"])
+        self.assertEqual(node["blocks"][0]["media"], ["GPU"])
 
 
 class TestStartServer(unittest.TestCase):

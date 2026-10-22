@@ -5,14 +5,14 @@ import unittest
 from radixview.tree import CacheTree
 
 
-def _stored(block_hash, parent, tokens=4):
+def _stored(block_hash, parent, tokens=4, medium="GPU"):
     return {
         "type": "BlockStored",
         "block_hashes": [block_hash],
         "parent_block_hash": parent,
         "token_ids": list(range(tokens)),
         "block_size": tokens,
-        "medium": "GPU",
+        "medium": medium,
     }
 
 
@@ -43,7 +43,14 @@ class TestCacheTree(unittest.TestCase):
             parent = block_hash
         snapshot = tree.snapshot()
         self.assertEqual(
-            snapshot["stats"], {"blocks": 4, "tokens": 256, "nodes": 2, "missing": 1}
+            snapshot["stats"],
+            {
+                "blocks": 4,
+                "tokens": 256,
+                "nodes": 2,
+                "missing": 1,
+                "tiers": {"GPU": {"blocks": 4, "tokens": 256}},
+            },
         )
         ghost = next(node for node in snapshot["nodes"] if node["missing"])
         chain = next(node for node in snapshot["nodes"] if not node["missing"])
@@ -160,7 +167,7 @@ class TestCacheTree(unittest.TestCase):
         self.assertIsNone(by_id["missing:9"]["parent"])
         chain = by_id["1..2"]
         self.assertEqual(chain["parent"], "missing:9")
-        self.assertEqual(chain["medium"], "GPU")
+        self.assertEqual(chain["media"], ["GPU"])
         self.assertFalse(chain["missing"])
         self.assertEqual(
             [
@@ -170,7 +177,7 @@ class TestCacheTree(unittest.TestCase):
             [("1", "9", "seen"), ("2", "1", "next")],
         )
         self.assertEqual(chain["blocks"][0]["tokens"], 4)
-        self.assertEqual(chain["blocks"][0]["medium"], "GPU")
+        self.assertEqual(chain["blocks"][0]["media"], ["GPU"])
 
     def test_node_blocks_record_each_branch(self):
         tree = CacheTree()
@@ -190,6 +197,121 @@ class TestCacheTree(unittest.TestCase):
         self.assertEqual(document["nodes"], [])
         self.assertEqual(document["stats"]["blocks"], 0)
         self.assertEqual(document["version"], 0)
+
+    def test_one_hash_on_two_tiers_stays_one_block(self):
+        calls = []
+
+        def decode(_tokens):
+            calls.append(1)
+            return "prompt"
+
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None, tokens=64), decode)
+        tree.apply_stored(_stored(1, None, tokens=64, medium="CPU_PINNED"), decode)
+        self.assertEqual(calls, [1])
+        block = tree.blocks_of("1")[0]
+        self.assertEqual(block["text"], "prompt")
+        self.assertEqual(block["media"], ["GPU", "CPU"])
+        stats = tree.snapshot()["stats"]
+        self.assertEqual(stats["blocks"], 1)
+        self.assertEqual(stats["tokens"], 64)
+        self.assertEqual(stats["tiers"]["GPU"], {"blocks": 1, "tokens": 64})
+        self.assertEqual(stats["tiers"]["CPU"], {"blocks": 1, "tokens": 64})
+
+    def test_a_chain_splits_when_the_tier_changes(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        tree.apply_stored(_stored(2, 1), _decode("b"))
+        tree.apply_stored(_stored(3, 2, medium="CPU_PINNED"), _decode("c"))
+        nodes = _nodes(tree)
+        self.assertEqual(set(nodes), {"1..2", "3"})
+        self.assertEqual(nodes["1..2"]["media"], ["GPU"])
+        self.assertEqual(nodes["3"]["media"], ["CPU"])
+        self.assertEqual(nodes["3"]["parent"], "1..2")
+
+    def test_removing_one_tier_leaves_the_other(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        tree.apply_stored(_stored(1, None, medium="CPU_PINNED"), _decode("a"))
+        tree.remove([1], "GPU")
+        self.assertEqual(_nodes(tree)["1"]["media"], ["CPU"])
+        tree.remove([1], "CPU_PINNED")
+        self.assertEqual(tree.snapshot()["nodes"], [])
+
+    def test_a_removal_without_a_medium_drops_every_tier(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        tree.apply_stored(_stored(1, None, medium="CPU_PINNED"), _decode("a"))
+        tree.remove([1])
+        self.assertEqual(tree.snapshot()["stats"]["blocks"], 0)
+
+    def test_removing_a_tier_the_block_is_not_on_changes_nothing(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        version = tree.snapshot()["version"]
+        tree.remove([1], "DISK")
+        self.assertEqual(tree.snapshot()["version"], version)
+        self.assertEqual(_nodes(tree)["1"]["media"], ["GPU"])
+
+    def test_a_removal_with_an_unreadable_medium_changes_nothing(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        version = tree.snapshot()["version"]
+        for medium in ["", "  ", 5]:
+            with self.subTest(medium=medium):
+                tree.remove([1], medium)
+                self.assertEqual(tree.snapshot()["version"], version)
+
+    def test_tier_names_ignore_case(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        tree.apply_stored(_stored(1, None, medium="cpu_pinned"), _decode("a"))
+        tree.apply_stored(_stored(1, None, medium="gpu"), _decode("a"))
+        self.assertEqual(_nodes(tree)["1"]["media"], ["GPU", "CPU"])
+        tree.remove([1], "Gpu")
+        self.assertEqual(_nodes(tree)["1"]["media"], ["CPU"])
+
+    def test_a_later_store_fills_in_a_parent_but_never_replaces_one(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(2, None), _decode("b"))
+        tree.apply_stored(_stored(2, 1, medium="CPU_PINNED"), _decode("b"))
+        tree.apply_stored(_stored(2, 9, medium="DISK"), _decode("b"))
+        self.assertEqual(_nodes(tree)["2"]["parent"], "missing:1")
+
+    def test_locate_follows_a_block_when_its_chain_splits_or_joins(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        tree.apply_stored(_stored(2, 1), _decode("b"))
+        tree.apply_stored(_stored(3, 2), _decode("c"))
+        self.assertEqual(tree.locate("1"), "1..3")
+        tree.apply_stored(_stored(2, 1, medium="CPU_PINNED"), _decode("b"))
+        self.assertEqual(set(_nodes(tree)), {"1", "2", "3"})
+        self.assertEqual(tree.locate("1..3"), "1")
+        tree.remove([2], "CPU")
+        self.assertEqual(tree.locate("2"), "1..3")
+        self.assertEqual(tree.locate("3"), "1..3")
+        tree.remove([1])
+        self.assertIsNone(tree.locate("1..3"))
+        self.assertIsNone(tree.locate("missing:1"))
+        self.assertEqual(tree.locate("missing:2"), "2..3")
+        self.assertIsNone(tree.locate(""))
+
+    def test_storing_the_same_tier_again_keeps_the_version(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        version = tree.snapshot()["version"]
+        view = tree.view()
+        tree.apply_stored(_stored(1, None), _decode("b"))
+        self.assertEqual(tree.snapshot()["version"], version)
+        self.assertIs(tree.view(), view)
+        self.assertEqual(tree.blocks_of("1")[0]["text"], "a")
+
+    def test_disk_stays_its_own_tier(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None, medium="DISK"), _decode("a"))
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        self.assertEqual(_nodes(tree)["1"]["media"], ["GPU", "DISK"])
+        self.assertEqual(list(tree.snapshot()["stats"]["tiers"]), ["GPU", "DISK"])
 
     def test_a_long_chain_is_one_visual_node(self):
         tree = CacheTree()

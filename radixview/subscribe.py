@@ -123,7 +123,7 @@ def _record(
         tree.apply_stored(event, None if detokenizer is None else detokenizer.decode)
         return
     if kind == "BlockRemoved":
-        tree.remove(_hashes(event))
+        tree.remove(_hashes(event), event.get("medium"))
         return
     if kind == "AllBlocksCleared":
         tree.clear()

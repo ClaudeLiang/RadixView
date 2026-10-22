@@ -85,25 +85,33 @@ The ZMQ events carry prompt token ids, and the page serves the decoded prompt te
 
 ## Reading the page
 
-The tree reads left to right, like a prompt. A straight chain of blocks collapses into one node; every branch point starts a new node. Each node shows the start of its text, then its block count, token count, and storage medium (such as `GPU` or `CPU_PINNED`).
+The tree reads left to right, like a prompt. A straight chain of blocks collapses into one node while those blocks sit on the same tiers. A branch, or a change of tier, starts a new node. Each node shows the start of its text, then its block count and token count. A bar on the left is blue for GPU memory and amber for host memory, split when the block is in both. SGLang HiCache reports host memory as `CPU_PINNED`; RadixView calls it `CPU` everywhere, including the API and the export. Tier names are upper-cased.
 
-Click a node to open the side panel. It shows the path from the root and the full text of every block in the node. The search box matches the full block text, not only the preview. Search hits are outlined in green, and the selected node and its path from the root in blue.
+The header shows the logical size first, with each block counted once, then blocks and tokens per tier. A block in both GPU and CPU memory counts in both tiers. The GPU and CPU buttons dim a node, and the edges to it, when none of its tiers is switched on. While both are on, the tier filter dims nothing. `DISK` and `EXTERNAL` stay in the data with a neutral bar and have no button.
 
-Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The same document is `GET /api/node-blocks`. Each entry is one visual node: its id, the id of its parent node, its medium, and `blocks` in prefix order. A block has its hash, the hash of its parent block, the decoded text, the token count, and the medium. A node with `"missing": true` is a parent stored before RadixView subscribed; its `blocks` list is empty. `stats` counts blocks, tokens, nodes, and missing parents for the whole tree.
+Click a node to open the side panel. It shows the path from the root and the full text of every block in the node, with the same bar. When a tier change splits or joins the node, the panel moves to the node that now holds its first block. The search box matches the full block text, not only the preview. Search hits are outlined in green, and the selected node and its path from the root in blue.
+
+Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The same document is `GET /api/node-blocks`. Each entry is one visual node: its id, the id of its parent node, its `media`, and `blocks` in prefix order. A block has its hash, the hash of its parent block, the decoded text, the token count, and `media`, a list such as `["GPU", "CPU"]`. A node with `"missing": true` is a parent stored before RadixView subscribed; its `blocks` list is empty. `stats.tiers` counts blocks and tokens per tier. `stats.missing` counts missing parents.
 
 ```json
 {
   "version": 2,
-  "stats": {"blocks": 2, "tokens": 128, "nodes": 1, "missing": 0},
+  "stats": {
+    "blocks": 2,
+    "tokens": 128,
+    "nodes": 1,
+    "missing": 0,
+    "tiers": {"GPU": {"blocks": 2, "tokens": 128}}
+  },
   "nodes": [
     {
       "id": "7..8",
       "parent": null,
       "missing": false,
-      "medium": "GPU",
+      "media": ["GPU"],
       "blocks": [
-        {"hash": "7", "parent": null, "text": "User: How do I", "tokens": 64, "medium": "GPU"},
-        {"hash": "8", "parent": "7", "text": " handle GPU quota?", "tokens": 64, "medium": "GPU"}
+        {"hash": "7", "parent": null, "text": "User: How do I", "tokens": 64, "media": ["GPU"]},
+        {"hash": "8", "parent": "7", "text": " handle GPU quota?", "tokens": 64, "media": ["GPU"]}
       ]
     }
   ]

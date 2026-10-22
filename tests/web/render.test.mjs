@@ -56,6 +56,74 @@ test("the selection, its path, and search hits change the border", () => {
   assert.deepStrictEqual(strokes, [THEME.edge, THEME.accent, THEME.accent, THEME.hit]);
 });
 
+test("a block on both tiers paints GPU above CPU", () => {
+  const fills = [];
+  const recorder = recordingContext();
+  const ctx = new Proxy(recorder.ctx, {
+    set(target, prop, value) {
+      if (prop === "fillStyle") fills.push(value);
+      target[prop] = value;
+      return true;
+    },
+  });
+  const nodes = [node("1", null, { media: ["GPU", "CPU"] })];
+  drawScene(ctx, scene(nodes), { x: 0, y: 0, z: 1 }, SCREEN, THEME);
+  const bar = fills.filter((color) => color === THEME.gpu || color === THEME.cpu);
+  assert.deepStrictEqual(bar, [THEME.gpu, THEME.cpu]);
+  const rects = recorder.named("fillRect");
+  assert.strictEqual(rects.length, 2);
+  assert.strictEqual(rects[0][4], 32);
+  assert.strictEqual(rects[1][4], 32);
+});
+
+test("an unknown tier gets the neutral bar", () => {
+  const fills = [];
+  const recorder = recordingContext();
+  const ctx = new Proxy(recorder.ctx, {
+    set(target, prop, value) {
+      if (prop === "fillStyle") fills.push(value);
+      target[prop] = value;
+      return true;
+    },
+  });
+  const nodes = [node("1", null, { media: ["DISK", "TEXT"] })];
+  drawScene(ctx, scene(nodes), { x: 0, y: 0, z: 1 }, SCREEN, THEME);
+  assert.deepStrictEqual(fills.slice(1, 3), [THEME.other, THEME.other]);
+});
+
+function tierAlphas(nodes, tiers) {
+  const alphas = [];
+  const recorder = recordingContext();
+  const ctx = new Proxy(recorder.ctx, {
+    set(target, prop, value) {
+      if (prop === "globalAlpha") alphas.push(value);
+      target[prop] = value;
+      return true;
+    },
+  });
+  drawScene(ctx, scene(nodes, { tiers }), { x: 0, y: 0, z: 1 }, SCREEN, THEME);
+  return alphas;
+}
+
+test("turning CPU off dims a host-only node and the edge to it", () => {
+  const nodes = [
+    node("gpu", null, { media: ["GPU"] }),
+    node("both", "gpu", { media: ["GPU", "CPU"] }),
+    node("cpu", "gpu", { media: ["CPU"] }),
+  ];
+  const alphas = tierAlphas(nodes, { GPU: true, CPU: false });
+  assert.deepStrictEqual(alphas, [1, 0.25, 1, 1, 0.25, 1]);
+});
+
+test("turning both tiers off dims every node but missing parents", () => {
+  const nodes = [
+    node("missing:9", null, { missing: true, media: [] }),
+    node("gpu", "missing:9", { media: ["GPU"] }),
+  ];
+  const alphas = tierAlphas(nodes, { GPU: false, CPU: false });
+  assert.deepStrictEqual(alphas, [0.25, 1, 0.25, 1]);
+});
+
 test("search dims everything that does not match", () => {
   const nodes = [node("r", null), node("a", "r")];
   const alphas = [];
@@ -109,5 +177,6 @@ test("zoomed far out, a large tree draws boxes without text, fast", () => {
   const elapsed = Date.now() - started;
   assert.strictEqual(result.text, false);
   assert.strictEqual(named("fillText").length, 0);
+  assert.strictEqual(named("clip").length, 0);
   assert.ok(elapsed < 500, `drawing took ${elapsed}ms`);
 });

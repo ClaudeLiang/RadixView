@@ -11,6 +11,9 @@
   --node-line: #3c4452;
   --edge: #4c5566;
   --hit: #7fd1a8;
+  --gpu: #9eb7ef;
+  --cpu: #e0b15a;
+  --other: #7f8794;
   --font: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
 }
 
@@ -104,6 +107,23 @@ header button:disabled {
   cursor: default;
 }
 
+#tiers {
+  display: flex;
+  gap: 8px;
+}
+
+#tiers button.on[data-tier="GPU"] {
+  box-shadow: inset 3px 0 0 var(--gpu);
+}
+
+#tiers button.on[data-tier="CPU"] {
+  box-shadow: inset 3px 0 0 var(--cpu);
+}
+
+#tiers button:not(.on) {
+  color: var(--muted);
+}
+
 main {
   flex: 1;
   min-height: 0;
@@ -186,10 +206,33 @@ aside.open { display: block; }
 }
 
 .block-card {
+  display: flex;
+  gap: 10px;
   padding: 12px 0;
   border-top: 1px solid var(--line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.residency {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 4px;
+}
+
+.residency span {
+  flex: 1;
+  background: var(--other);
+}
+
+.residency span[data-tier="GPU"] { background: var(--gpu); }
+
+.residency span[data-tier="CPU"] { background: var(--cpu); }
+
+.block-body {
+  flex: 1;
+  min-width: 0;
 }
 
 .meta {

@@ -16,10 +16,12 @@ export function nodeMeta(node) {
   const parts = [];
   if (node.blocks > 1) parts.push(node.blocks + " blocks");
   parts.push(node.tokens + " tok");
-  if (node.medium) parts.push(node.medium);
+  const label = mediaLabel(node.media);
+  if (label) parts.push(label);
   return parts.join(" · ");
 }
 
+// The server sends stats.tiers already in tier order.
 export function statsLine(stats) {
   const parts = [
     stats.blocks + " blocks",
@@ -27,7 +29,15 @@ export function statsLine(stats) {
     stats.nodes + " nodes",
   ];
   if (stats.missing) parts.push(stats.missing + " missing");
+  for (const [name, tier] of Object.entries(stats.tiers || {})) {
+    parts.push(name + " " + tier.blocks + " blocks (" + tier.tokens + " tok)");
+  }
   return parts.join(" · ");
+}
+
+function mediaLabel(media) {
+  if (!media || !media.length) return "";
+  return media.join("+");
 }
 
 export function hitsLine(query, ids) {
@@ -36,7 +46,7 @@ export function hitsLine(query, ids) {
 }
 
 export function blockMeta(block) {
-  return [block.tokens + " tok", block.medium || "-", shortHash(block.hash)].join(" · ");
+  return [mediaLabel(block.media) || "-", block.tokens + " tok", shortHash(block.hash)].join(" · ");
 }
 
 export function shortHash(hash) {

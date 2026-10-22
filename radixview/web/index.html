@@ -12,6 +12,10 @@
     <h1>RadixView</h1>
     <div id="stats">Waiting for cache events</div>
     <div id="tools">
+      <div id="tiers" role="group" aria-label="Tiers">
+        <button type="button" class="on" data-tier="GPU" aria-pressed="true" title="GPU memory">GPU</button>
+        <button type="button" class="on" data-tier="CPU" aria-pressed="true" title="Host memory">CPU</button>
+      </div>
       <input id="query" type="search" placeholder="Search text" autocomplete="off">
       <span id="hits"></span>
       <span id="export-error" role="status"></span>

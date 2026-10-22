@@ -11,6 +11,7 @@ from fake_sglang import (
 )
 
 from radixview.subscribe import _handle
+from radixview.tree import CacheTree
 
 _LOGGER = "radixview.subscribe"
 
@@ -73,6 +74,39 @@ class TestHandle(unittest.TestCase):
         self.assertEqual(detokenizer.token_ids, [4, 5])
         self.assertIn("hello\\nthere", logs.output[0])
         self.assertNotIn("token_ids", logs.output[0])
+
+    def test_removing_one_tier_leaves_the_other(self):
+        tree = CacheTree()
+        stored = dict(
+            block_hashes=[1],
+            parent_block_hash=None,
+            token_ids=[4, 5],
+            block_size=2,
+            lora_id=None,
+        )
+        with self.assertLogs(_LOGGER, "INFO"):
+            _handle(
+                _message(1, events=[BlockStored(**stored, medium="GPU")]),
+                0,
+                {},
+                None,
+                tree,
+            )
+            _handle(
+                _message(2, events=[BlockStored(**stored, medium="CPU_PINNED")]),
+                0,
+                {},
+                None,
+                tree,
+            )
+            _handle(
+                _message(3, events=[BlockRemoved(block_hashes=[1], medium="GPU")]),
+                0,
+                {},
+                None,
+                tree,
+            )
+        self.assertEqual(tree.blocks_of("1")[0]["media"], ["CPU"])
 
     def test_drops_a_malformed_batch_without_touching_the_sequence(self):
         last_seq = {0: 4}

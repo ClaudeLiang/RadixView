@@ -1,6 +1,6 @@
 // Page wiring: poll the tree, handle pan/zoom/select/search, fill the panel.
 
-import { fetchBlocks, fetchNodeBlocks, fetchTree, searchText } from "./api.mjs";
+import { fetchBlocks, fetchNodeBlocks, fetchTree, locateNode, searchText } from "./api.mjs";
 import { exportBody, exportFilename } from "./export.mjs";
 import { blockMeta, clip, hitsLine, nodeTitle, statsLine } from "./format.mjs";
 import { layoutTree, pathTo } from "./layout.mjs";
@@ -14,6 +14,7 @@ const PATH_CHARS = 12;
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas");
 const ctx = canvas.getContext("2d");
+const tierButtons = [...document.querySelectorAll("#tiers [data-tier]")];
 
 const state = {
   version: null,
@@ -27,6 +28,8 @@ const state = {
   highlight: null,
   query: "",
   stats: null,
+  tiers: Object.fromEntries(
+    tierButtons.map((button) => [button.dataset.tier, button.classList.contains("on")])),
   drag: null,
   dirty: true,
 };
@@ -45,6 +48,9 @@ function theme() {
     nodeLine: value("node-line"),
     edge: value("edge"),
     hit: value("hit"),
+    gpu: value("gpu"),
+    cpu: value("cpu"),
+    other: value("other"),
   };
 }
 
@@ -94,9 +100,23 @@ function applyTree(payload) {
     state.fitted = true;
     state.view = initialView(state.layout, screen());
   }
-  if (state.selected && !state.byId.has(state.selected)) closeDetail();
+  if (state.selected && !state.byId.has(state.selected)) followSelection(state.selected);
   if (state.query) runSearch();
   state.dirty = true;
+}
+
+// A tier change splits or joins chains and renames their nodes. Keep the
+// panel on whichever node now holds the first block of the old one.
+async function followSelection(id) {
+  let next = null;
+  try {
+    next = await locateNode(id);
+  } catch (error) {
+    next = null;
+  }
+  if (state.selected !== id) return;
+  if (next !== null && state.byId.has(next)) select(next);
+  else closeDetail();
 }
 
 async function poll() {
@@ -155,11 +175,25 @@ async function renderBlocks(node) {
 function blockCard(block) {
   const card = document.createElement("div");
   card.className = "block-card";
+  const body = document.createElement("div");
+  body.className = "block-body";
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = blockMeta(block);
-  card.append(meta, document.createTextNode(block.text || "(empty)"));
+  body.append(meta, document.createTextNode(block.text || "(empty)"));
+  card.append(residencyBar(block.media), body);
   return card;
+}
+
+function residencyBar(media) {
+  const bar = document.createElement("div");
+  bar.className = "residency";
+  for (const name of media || []) {
+    const slice = document.createElement("span");
+    slice.dataset.tier = name;
+    bar.append(slice);
+  }
+  return bar;
 }
 
 function paragraph(text) {
@@ -235,6 +269,15 @@ function onKey(event) {
   if (event.key === "Escape") closeDetail();
 }
 
+function onTier(event) {
+  const button = event.currentTarget;
+  const tier = button.dataset.tier;
+  state.tiers[tier] = !state.tiers[tier];
+  button.classList.toggle("on", state.tiers[tier]);
+  button.setAttribute("aria-pressed", String(state.tiers[tier]));
+  state.dirty = true;
+}
+
 function onQuery() {
   state.query = $("query").value.trim();
   clearTimeout(searchTimer);
@@ -282,6 +325,7 @@ window.addEventListener("pointermove", onPointerMove);
 window.addEventListener("pointerup", onPointerUp);
 window.addEventListener("resize", resize);
 window.addEventListener("keydown", onKey);
+for (const button of tierButtons) button.addEventListener("click", onTier);
 $("query").addEventListener("input", onQuery);
 $("query").addEventListener("keydown", onQueryKey);
 $("export").addEventListener("click", onExport);

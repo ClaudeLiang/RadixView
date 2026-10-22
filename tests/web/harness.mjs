@@ -59,6 +59,9 @@ export const THEME = {
   nodeLine: "#3c4452",
   edge: "#4c5566",
   hit: "#7fd1a8",
+  gpu: "#9eb7ef",
+  cpu: "#e0b15a",
+  other: "#7f8794",
 };
 
 export function node(id, parent, extra = {}) {
@@ -68,7 +71,7 @@ export function node(id, parent, extra = {}) {
     preview: "text " + id,
     blocks: 1,
     tokens: 64,
-    medium: "GPU",
+    media: ["GPU"],
     missing: false,
     ...extra,
   };

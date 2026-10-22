@@ -10,6 +10,11 @@ export async function fetchBlocks(id) {
   return payload.blocks;
 }
 
+export async function locateNode(id) {
+  const payload = await getJson("/api/locate?id=" + encodeURIComponent(id));
+  return payload.id;
+}
+
 export async function searchText(query) {
   const payload = await getJson("/api/search?q=" + encodeURIComponent(query));
   return payload.ids;
