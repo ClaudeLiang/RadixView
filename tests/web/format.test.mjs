@@ -6,6 +6,7 @@ import {
   nodeMeta,
   nodeTitle,
   blockMeta,
+  poolOccupancy,
   shortHash,
   statsLine,
 } from "../../radixview/web/js/format.mjs";
@@ -42,6 +43,18 @@ test("nodeMeta shows blocks only for a collapsed chain", () => {
     nodeMeta(node("missing:1137640873890580499", null, { missing: true })),
     "parent …90580499",
   );
+  assert.strictEqual(
+    nodeMeta(node("1..4", null, {
+      blocks: 4,
+      tokens: 256,
+      mamba: [{ at: 1, pool: "device", slot: 4, hash: "2" }],
+    })),
+    "4 blocks · 256 tok · GPU · mamba 1/4",
+  );
+  assert.strictEqual(
+    nodeMeta(node("1", null, { mamba: [{ at: 0, pool: "device", slot: 2 }] })),
+    "64 tok · GPU · mamba",
+  );
 });
 
 test("statsLine leads with the logical size, then each tier", () => {
@@ -59,6 +72,49 @@ test("statsLine leads with the logical size, then each tier", () => {
     statsLine({ blocks: 0, tokens: 0, nodes: 0, missing: 0, tiers: {} }),
     "0 blocks · 0 tok · 0 nodes",
   );
+  assert.strictEqual(
+    statsLine({
+      blocks: 4,
+      tokens: 256,
+      nodes: 2,
+      missing: 0,
+      tiers: { GPU: gpu },
+      mamba: { pools: {}, slots: [{ slot: 1 }] },
+    }),
+    "4 blocks · 256 tok · 2 nodes · GPU 4 blocks (256 tok)",
+  );
+  assert.strictEqual(
+    statsLine({
+      blocks: 4,
+      tokens: 256,
+      nodes: 2,
+      missing: 0,
+      tiers: { GPU: gpu },
+      mamba: {
+        pools: { device: 8 },
+        slots: [{ pool: "device", slot: 1 }, { pool: "device", slot: 2 }],
+      },
+    }),
+    "4 blocks · 256 tok · 2 nodes · GPU 4 blocks (256 tok) · mamba device 2/8",
+  );
+  assert.strictEqual(
+    statsLine({
+      blocks: 4,
+      tokens: 256,
+      nodes: 2,
+      missing: 0,
+      tiers: {},
+      mamba: {
+        pools: { host: 4, device: 8 },
+        slots: [{ pool: "device", slot: 1 }],
+      },
+    }),
+    "4 blocks · 256 tok · 2 nodes · mamba device 1/8 · host 0/4",
+  );
+  assert.strictEqual(
+    poolOccupancy({ pools: { ckpt: 2, device: 8 }, slots: [] }),
+    "device 0/8 · ckpt 0/2",
+  );
 });
 
 test("hitsLine and blockMeta", () => {
@@ -74,5 +130,14 @@ test("hitsLine and blockMeta", () => {
     "GPU+CPU · 64 tok · 7",
   );
   assert.strictEqual(blockMeta({ tokens: 1, media: [], hash: "7" }), "- · 1 tok · 7");
+  assert.strictEqual(
+    blockMeta({
+      tokens: 64,
+      media: ["GPU"],
+      hash: "8",
+      mamba: [{ pool: "device", slot: 17 }],
+    }),
+    "GPU · 64 tok · 8 · device 17",
+  );
   assert.strictEqual(shortHash(42), "42");
 });

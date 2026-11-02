@@ -91,6 +91,43 @@ test("an unknown tier gets the neutral bar", () => {
   assert.deepStrictEqual(fills.slice(1, 3), [THEME.other, THEME.other]);
 });
 
+test("checkpoints paint up to six mamba ticks on the node", () => {
+  const fills = [];
+  const recorder = recordingContext();
+  const ctx = new Proxy(recorder.ctx, {
+    set(target, prop, value) {
+      if (prop === "fillStyle") fills.push(value);
+      target[prop] = value;
+      return true;
+    },
+  });
+  const mamba = Array.from({ length: 8 }, (_, index) => ({
+    at: index,
+    pool: "device",
+    slot: index + 1,
+    hash: String(index + 1),
+  }));
+  const nodes = [node("1..8", null, { blocks: 8, mamba })];
+  drawScene(ctx, scene(nodes), { x: 0, y: 0, z: 1 }, SCREEN, THEME);
+  assert.ok(fills.includes(THEME.mamba));
+  const ticks = recorder.named("fillRect").filter((call) => call[3] === 8 && call[4] === 4);
+  assert.strictEqual(ticks.length, 6);
+});
+
+test("two pools on one page paint one mamba tick", () => {
+  const recorder = recordingContext();
+  const nodes = [node("1", null, {
+    blocks: 1,
+    mamba: [
+      { at: 0, pool: "device", slot: 1, hash: "1" },
+      { at: 0, pool: "host", slot: 0, hash: "1" },
+    ],
+  })];
+  drawScene(recorder.ctx, scene(nodes), { x: 0, y: 0, z: 1 }, SCREEN, THEME);
+  const ticks = recorder.named("fillRect").filter((call) => call[3] === 8 && call[4] === 4);
+  assert.strictEqual(ticks.length, 1);
+});
+
 function tierAlphas(nodes, tiers) {
   const alphas = [];
   const recorder = recordingContext();

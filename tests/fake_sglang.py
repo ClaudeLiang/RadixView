@@ -42,8 +42,65 @@ class AllBlocksCleared(KVCacheEvent):
     pass
 
 
+class MambaSlotView(msgspec.Struct, omit_defaults=True, gc=False):
+    pool: str
+    slot: int
+    role: str
+    block_hash: Optional[int] = None
+    seqlen: Optional[int] = None
+    req: Optional[str] = None
+    src_pool: Optional[str] = None
+    src_slot: Optional[int] = None
+
+
+class MambaAlloc(KVCacheEvent):
+    pool: str
+    slot: int
+    role: str
+    reason: str
+    req: Optional[str] = None
+    src_pool: Optional[str] = None
+    src_slot: Optional[int] = None
+    block_hash: Optional[int] = None
+    seqlen: Optional[int] = None
+
+
+class MambaFree(KVCacheEvent):
+    pool: str
+    slot: int
+    role: str
+    reason: str
+    req: Optional[str] = None
+    block_hash: Optional[int] = None
+    seqlen: Optional[int] = None
+
+
+class MambaBind(KVCacheEvent):
+    pool: str
+    slot: int
+    block_hash: int
+    seqlen: int
+    op: str
+    req: Optional[str] = None
+
+
+class MambaSnapshot(KVCacheEvent):
+    pools: dict[str, int]
+    slots: list[MambaSlotView]
+
+
 class KVEventBatch(EventBatch):
-    events: list[Union[BlockStored, BlockRemoved, AllBlocksCleared]]
+    events: list[
+        Union[
+            BlockStored,
+            BlockRemoved,
+            AllBlocksCleared,
+            MambaAlloc,
+            MambaFree,
+            MambaBind,
+            MambaSnapshot,
+        ]
+    ]
 
 
 class LegacyKVCacheEvent(msgspec.Struct, array_like=True, gc=False, tag=True):

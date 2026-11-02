@@ -36,6 +36,8 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from radixview.mamba import MambaBook
+
 Decode = Callable[[list], Optional[str]]
 
 _PREVIEW_CHARS = 80
@@ -74,6 +76,7 @@ class CacheTree:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._blocks: dict[str, Block] = {}
+        self._mamba = MambaBook()
         self._version = 0
         self._view: Optional[TreeView] = None
 
@@ -95,14 +98,29 @@ class CacheTree:
         if not keys or (medium is not None and tier is None):
             return
         with self._lock:
-            if _drop_all(self._blocks, keys, tier):
+            changed = _drop_all(self._blocks, keys, tier)
+            changed = self._mamba.forget_absent(self._blocks) or changed
+            if changed:
                 self._version += 1
 
     def clear(self) -> None:
-        """Drop every block, for ``AllBlocksCleared`` or a publisher restart."""
+        """Drop every block, for ``AllBlocksCleared`` or a publisher restart.
+
+        Mamba slots, the pool log, and kept-page frees go with the blocks.
+        Pool sizes stay, so the next snapshot still knows how big each pool is.
+        """
         with self._lock:
             self._blocks.clear()
+            self._mamba.drop_slots()
             self._version += 1
+
+    def apply_mamba(self, event: dict) -> None:
+        """Record one mamba alloc, free, bind, or snapshot. Never raises."""
+        with self._lock:
+            changed = self._mamba.apply(event)
+            self._mamba.forget_absent(self._blocks)
+            if changed:
+                self._version += 1
 
     def snapshot(self, since: Optional[int] = None) -> dict:
         """Visual nodes, or only the version when ``since`` is current."""
@@ -113,7 +131,12 @@ class CacheTree:
 
     def blocks_of(self, node_id: str) -> list[dict]:
         """Every block inside one visual node, in prefix order."""
-        return [_block_detail(block) for block in self.view().runs.get(node_id, ())]
+        view = self.view()
+        marks = _checkpoints(view.stats["mamba"]["slots"])
+        return [
+            _block_detail(block, marks.get(block.hash))
+            for block in view.runs.get(node_id, ())
+        ]
 
     def locate(self, node_id: str) -> Optional[str]:
         """The visual node that now holds the first block of ``node_id``.
@@ -130,8 +153,14 @@ class CacheTree:
         for a parent that was stored before the subscriber attached.
         """
         view = self.view()
-        nodes = [_exported_node(node, view.runs) for node in view.nodes]
-        return {"version": view.version, "stats": view.stats, "nodes": nodes}
+        marks = _checkpoints(view.stats["mamba"]["slots"])
+        nodes = [_exported_node(node, view.runs, marks) for node in view.nodes]
+        return {
+            "version": view.version,
+            "stats": _exported_stats(view.stats),
+            "nodes": nodes,
+            "mamba": _exported_mamba(view.stats["mamba"]),
+        }
 
     def search(self, query: str) -> list[str]:
         """Ids of the visual nodes whose block text contains ``query``."""
@@ -148,8 +177,9 @@ class CacheTree:
             if self._view is not None and self._view.version == self._version:
                 return self._view
             blocks = dict(self._blocks)
+            book = self._mamba.copy()
             version = self._version
-        view = _build_view(blocks, version)
+        view = _build_view(blocks, version, book)
         with self._lock:
             if version == self._version:
                 self._view = view
@@ -262,16 +292,39 @@ def _without_tier(block: Block, media: tuple[str, ...]) -> Block:
     return Block(block.hash, block.parent, block.text, block.tokens, media)
 
 
-def _build_view(blocks: dict[str, Block], version: int) -> TreeView:
+def _build_view(blocks: dict[str, Block], version: int, book: MambaBook) -> TreeView:
     runs = _runs(blocks)
     owner = {block.hash: run_id for run_id, run in runs.items() for block in run}
     nodes = [_node(run_id, run, owner) for run_id, run in runs.items()]
     nodes.extend(_placeholders(nodes))
+    _stamp(nodes, book.located(runs))
     haystacks = {
         run_id: "\n".join(block.text for block in run).lower()
         for run_id, run in runs.items()
     }
-    return TreeView(version, nodes, _stats(blocks, nodes), runs, haystacks, owner)
+    stats = _stats(blocks, nodes)
+    stats["mamba"] = book.public()
+    _mark_kept_pages(stats["mamba"], owner)
+    return TreeView(version, nodes, stats, runs, haystacks, owner)
+
+
+def _mark_kept_pages(mamba: dict, owner: dict[str, str]) -> None:
+    """Name the visual node that still holds a released checkpoint's page."""
+    for row in mamba.get("releases", []):
+        key = row.get("hash")
+        if not isinstance(key, str):
+            continue
+        node = owner.get(key)
+        row["kv"] = node is not None
+        if node is not None:
+            row["node"] = node
+
+
+def _stamp(nodes: list[dict], located: dict[str, list[dict]]) -> None:
+    for node in nodes:
+        marks = located.get(node["id"])
+        if marks:
+            node["mamba"] = marks
 
 
 def _runs(blocks: dict[str, Block]) -> dict[str, tuple[Block, ...]]:
@@ -415,33 +468,71 @@ def _tier_names(counts: dict[str, list[int]]) -> list[str]:
     return ordered
 
 
-def _block_detail(block: Block) -> dict:
-    return {
+def _block_detail(block: Block, mamba: Optional[list] = None) -> dict:
+    detail = {
         "hash": block.hash,
         "text": block.text,
         "tokens": block.tokens,
         "media": list(block.media),
     }
+    if mamba:
+        detail["mamba"] = mamba
+    return detail
 
 
-def _exported_node(node: dict, runs: dict[str, tuple[Block, ...]]) -> dict:
+def _exported_node(
+    node: dict, runs: dict[str, tuple[Block, ...]], marks: dict[str, list]
+) -> dict:
     return {
         "id": node["id"],
         "parent": node["parent"],
         "missing": node["missing"],
         "media": node["media"],
-        "blocks": [_block_export(block) for block in runs.get(node["id"], ())],
+        "blocks": [
+            _block_export(block, marks.get(block.hash))
+            for block in runs.get(node["id"], ())
+        ],
     }
 
 
-def _block_export(block: Block) -> dict:
-    return {
+def _block_export(block: Block, mamba: Optional[list] = None) -> dict:
+    detail = {
         "hash": block.hash,
         "parent": block.parent,
         "text": block.text,
         "tokens": block.tokens,
         "media": list(block.media),
     }
+    if mamba:
+        detail["mamba"] = mamba
+    return detail
+
+
+def _checkpoints(slots: list[dict]) -> dict[str, list]:
+    found: dict[str, list] = {}
+    for row in slots:
+        if row.get("role") == "checkpoint" and row.get("hash"):
+            found.setdefault(row["hash"], []).append(_slot_mark(row))
+    return found
+
+
+def _slot_mark(row: dict) -> dict:
+    return {
+        "pool": row["pool"],
+        "slot": row["slot"],
+        "seqlen": row.get("seqlen"),
+        "hash": row["hash"],
+    }
+
+
+def _exported_stats(stats: dict) -> dict:
+    exported = dict(stats)
+    exported["mamba"] = _exported_mamba(stats["mamba"])
+    return exported
+
+
+def _exported_mamba(mamba: dict) -> dict:
+    return {"pools": mamba["pools"], "slots": mamba["slots"]}
 
 
 def _union(left: tuple[str, ...], right: tuple[str, ...]) -> tuple[str, ...]:

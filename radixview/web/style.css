@@ -13,6 +13,7 @@
   --hit: #7fd1a8;
   --gpu: #9eb7ef;
   --cpu: #e0b15a;
+  --mamba: #c4a3e0;
   --other: #7f8794;
   --font: ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif;
 }
@@ -170,7 +171,7 @@ canvas.drag { cursor: grabbing; }
 
 aside {
   display: none;
-  width: 400px;
+  width: 460px;
   padding: 16px;
   overflow: auto;
   background: var(--panel);
@@ -184,6 +185,11 @@ aside.open { display: block; }
   flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 8px;
+}
+
+#path p {
+  width: 100%;
+  margin: 0;
 }
 
 #path button {
@@ -240,3 +246,51 @@ aside.open { display: block; }
   color: var(--muted);
   font-size: 12px;
 }
+
+table.pool {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+table.pool th,
+table.pool td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+table.pool td.role,
+table.pool td.page {
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table.pool tr.link { cursor: pointer; }
+
+table.pool tr.link:hover { background: var(--node); }
+
+.pool-note {
+  margin: 16px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pool-releases {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pool-releases li {
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.pool-releases li.link { cursor: pointer; }
+
+.pool-releases li.link:hover { background: var(--node); }

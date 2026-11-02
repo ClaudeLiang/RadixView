@@ -7,6 +7,7 @@ from fake_sglang import (
     BlockRemoved,
     BlockStored,
     KVEventBatch,
+    MambaBind,
     frames,
 )
 
@@ -108,12 +109,34 @@ class TestHandle(unittest.TestCase):
             )
         self.assertEqual(tree.blocks_of("1")[0]["media"], ["CPU"])
 
+    def test_a_bind_after_store_marks_that_block(self):
+        tree = CacheTree()
+        stored = BlockStored(
+            block_hashes=[11, 12],
+            parent_block_hash=None,
+            token_ids=[1, 2],
+            block_size=1,
+            lora_id=None,
+            medium="GPU",
+        )
+        bound = MambaBind(pool="device", slot=4, block_hash=12, seqlen=2, op="donate")
+        with self.assertLogs(_LOGGER, "INFO") as logs:
+            _handle(_message(1, events=[stored, bound]), 0, {}, None, tree)
+        self.assertIn("mamba bind", logs.output[1])
+        self.assertEqual(_nodes_mamba(tree), 4)
+        self.assertNotIn("mamba", tree.blocks_of("11..12")[0])
+
     def test_drops_a_malformed_batch_without_touching_the_sequence(self):
         last_seq = {0: 4}
         with self.assertLogs(_LOGGER, "WARNING") as logs:
             _handle([b"", b"\x00" * 8, b"\xc1"], 0, last_seq)
         self.assertIn("dropped malformed batch on dp=0", logs.output[0])
         self.assertEqual(last_seq, {0: 4})
+
+
+def _nodes_mamba(tree: CacheTree) -> int:
+    block = tree.blocks_of("11..12")[1]
+    return block["mamba"][0]["slot"]
 
 
 if __name__ == "__main__":

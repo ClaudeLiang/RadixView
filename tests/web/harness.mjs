@@ -72,6 +72,7 @@ export const THEME = {
   hit: "#7fd1a8",
   gpu: "#9eb7ef",
   cpu: "#e0b15a",
+  mamba: "#c4a3e0",
   other: "#7f8794",
 };
 

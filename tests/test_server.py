@@ -51,6 +51,7 @@ class TestServer(unittest.TestCase):
         self.assertTrue(content_type.startswith("text/html"))
         self.assertIn(b'href="/style.css"', body)
         self.assertIn(b'src="/js/main.mjs"', body)
+        self.assertIn(b'id="pool"', body)
         self.assertIn(b'id="export"', body)
         self.assertIn(b'id="export-error"', body)
         self.assertIn(b'id="tools"', body)

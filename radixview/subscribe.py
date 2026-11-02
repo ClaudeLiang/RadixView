@@ -127,6 +127,9 @@ def _record(
         return
     if kind == "AllBlocksCleared":
         tree.clear()
+        return
+    if kind in ("MambaAlloc", "MambaFree", "MambaBind", "MambaSnapshot"):
+        tree.apply_mamba(event)
 
 
 def _hashes(event: dict) -> list:

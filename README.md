@@ -73,7 +73,11 @@ dp=0 seq=42 stored blocks=1 tokens=64 block_size=64 medium=GPU parent=1137640873
   User: How do I handle GPU quota?
 dp=0 seq=43 removed blocks=2 medium=GPU hashes=[-2285270490815386373, 5188292320627455716]
 dp=0 seq=44 cleared
+dp=0 seq=45 mamba bind pool=device slot=17 hash=-2285270490815386373 seqlen=8192 op=donate
+dp=0 seq=46 mamba free pool=device slot=9 role=checkpoint reason=path_cap hash=-871666239493208026 seqlen=4096
 ```
+
+`mamba alloc`, `mamba bind`, `mamba free`, and `mamba snapshot` describe the GDN state pool, not KV pages. `pool` is `device`, `host`, or `ckpt`, and those three number their slots separately. A bind names the published hash of the last KV page the checkpoint covers. A path-cap or mamba LRU free drops that slot and leaves the KV block in place.
 
 A skipped sequence number is logged as a gap. A sequence number that goes backwards is logged as a publisher restart.
 
@@ -87,11 +91,11 @@ The ZMQ events carry prompt token ids, and the page serves the decoded prompt te
 
 The tree reads left to right, like a prompt. A straight chain of blocks collapses into one node while those blocks sit on the same tiers. A branch, or a change of tier, starts a new node. Each node shows the start of its text, then its block count and token count. A bar on the left is blue for GPU memory and amber for host memory, split when the block is in both. SGLang HiCache reports host memory as `CPU_PINNED`; RadixView calls it `CPU` everywhere, including the API and the export. Tier names are upper-cased.
 
-The header shows the logical size first, with each block counted once, then blocks and tokens per tier. A block in both GPU and CPU memory counts in both tiers. The GPU and CPU buttons dim a node, and the edges to it, when none of its tiers is switched on. While both are on, the tier filter dims nothing. `DISK` and `EXTERNAL` stay in the data with a neutral bar and have no button.
+The header shows the logical size first, with each block counted once, then blocks and tokens per tier. A block in both GPU and CPU memory counts in both tiers. The GPU and CPU buttons dim a node, and the edges to it, when none of its tiers is switched on. While both are on, the tier filter dims nothing. `DISK` and `EXTERNAL` stay in the data with a neutral bar and have no button. When a mamba pool has been announced, the header shows each pool's occupied and size separately, such as `mamba device 6/8 · host 0/4`. A violet tick on a node marks a checkpoint on one of its blocks; `mamba k/n` means k of the n blocks carry one. Pool lists occupied slots: role, the slot a copy came from, the page (the same short hash as the block panel, and its index in the node), and seqlen. Hovering seqlen shows that node's token count. Clicking a checkpoint row selects the node. Beneath the table, the newest 32 frees that dropped the state and left the KV page (`path_cap`, or a mamba eviction) stay listed until that page leaves the tree.
 
 Click a node to open the side panel. It shows the path from the root and the full text of every block in the node, with the same bar. When a tier change splits or joins the node, the panel moves to the node that now holds its first block. The search box matches the full block text, not only the preview. Search hits are outlined in green, and the selected node and its path from the root in blue.
 
-Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The same document is `GET /api/node-blocks`. Each entry is one visual node: its id, the id of its parent node, its `media`, and `blocks` in prefix order. A block has its hash, the hash of its parent block, the decoded text, the token count, and `media`, a list such as `["GPU", "CPU"]`. A node with `"missing": true` is a parent stored before RadixView subscribed; its `blocks` list is empty. `stats.tiers` counts blocks and tokens per tier. `stats.missing` counts missing parents.
+Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The same document is `GET /api/node-blocks`. Each entry is one visual node: its id, the id of its parent node, its `media`, and `blocks` in prefix order. A block has its hash, the hash of its parent block, the decoded text, the token count, and `media`, a list such as `["GPU", "CPU"]`. A checkpoint on that page adds `mamba`, a list of `{pool, slot, seqlen, hash}`. A node with `"missing": true` is a parent stored before RadixView subscribed; its `blocks` list is empty. `stats.tiers` counts blocks and tokens per tier. `stats.missing` counts missing parents. The top-level `mamba` object is `{pools, slots}`: pool sizes, and every occupied slot. The live log is not part of the download. `version` is the tree's mutation counter, not a schema version.
 
 ```json
 {
@@ -101,7 +105,13 @@ Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The sa
     "tokens": 128,
     "nodes": 1,
     "missing": 0,
-    "tiers": {"GPU": {"blocks": 2, "tokens": 128}}
+    "tiers": {"GPU": {"blocks": 2, "tokens": 128}},
+    "mamba": {
+      "pools": {"device": 512},
+      "slots": [
+        {"pool": "device", "slot": 17, "role": "checkpoint", "hash": "8", "seqlen": 128}
+      ]
+    }
   },
   "nodes": [
     {
@@ -111,10 +121,17 @@ Export downloads `radixview-node-blocks-v<version>.json`, pretty-printed. The sa
       "media": ["GPU"],
       "blocks": [
         {"hash": "7", "parent": null, "text": "User: How do I", "tokens": 64, "media": ["GPU"]},
-        {"hash": "8", "parent": "7", "text": " handle GPU quota?", "tokens": 64, "media": ["GPU"]}
+        {"hash": "8", "parent": "7", "text": " handle GPU quota?", "tokens": 64, "media": ["GPU"],
+         "mamba": [{"pool": "device", "slot": 17, "seqlen": 128, "hash": "8"}]}
       ]
     }
-  ]
+  ],
+  "mamba": {
+    "pools": {"device": 512},
+    "slots": [
+      {"pool": "device", "slot": 17, "role": "checkpoint", "hash": "8", "seqlen": 128}
+    ]
+  }
 }
 ```
 
@@ -142,13 +159,14 @@ The page tests run under Node, through `tests/test_web.py`, on snapshots generat
 | `radixview/subscribe.py` | The ZMQ subscriber |
 | `radixview/text.py` | `/detokenize` |
 | `radixview/tree.py` | The radix tree built from events |
+| `radixview/mamba.py` | Mamba pool occupancy and the page-hash join |
 | `radixview/server.py` | The page and `/api/*` |
 | `radixview/serve.py` | Wiring the subscriber, the tree, and the page together |
 | `radixview/web/` | The page. No build step. Labels are in `web/js/format.mjs` |
 | `examples/demo/` | Synthetic traffic. Not part of the library |
 | `tests/` | Python tests. `tests/web/` tests the page modules |
 
-`radixview/web/js/layout.mjs`, `viewport.mjs`, `render.mjs`, and `export.mjs` are pure and have no DOM. `main.mjs` wires them to the page.
+`radixview/web/js/layout.mjs`, `viewport.mjs`, `render.mjs`, `pool.mjs`, and `export.mjs` are pure and have no DOM. `main.mjs` wires them to the page.
 
 ## License
 

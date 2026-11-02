@@ -40,6 +40,7 @@ _CORPUS = Path(__file__).with_name("corpus.json")
 _NEW_SESSION = 0.3
 _REGENERATE = 0.15
 _HOST_MEDIUM = 0.1
+_CHECKPOINT_SLOTS = range(2, 9)
 
 
 def load_corpus(path: Path = _CORPUS) -> dict:
@@ -67,6 +68,11 @@ class DemoTraffic:
         self._leaves: dict[int, None] = {}
         self._pinned: set[int] = set()
         self._root: Optional[int] = None
+        # Checkpoint slots come from a fixed range, never ``_rng``. The tree
+        # shape tests depend on the prompt RNG staying on the same sequence.
+        self._checkpoints: list[int] = []
+        self._checkpoint_of: dict[int, int] = {}
+        self._hash_of: dict[int, int] = {}
 
     @property
     def blocks(self) -> int:
@@ -74,6 +80,9 @@ class DemoTraffic:
 
     def populate(self) -> None:
         """Store the shared prefix, one orphan chain, and sessions up to the limit."""
+        self._tree.apply_mamba(
+            {"type": "MambaSnapshot", "pools": {"device": 8}, "slots": []}
+        )
         shared = self._corpus["system"] + self._corpus["tools"]
         self._root = self._store(None, shared, "GPU")
         self._pinned.update(self._parent)
@@ -119,6 +128,7 @@ class DemoTraffic:
             hashes.append(block_hash)
             cursor = block_hash
         self._tree.apply_stored(_stored(hashes, parent, token_ids, medium), self.decode)
+        self._bind_tail(cursor)
         return cursor
 
     def _block_tokens(self, text: str) -> list[int]:
@@ -146,6 +156,7 @@ class DemoTraffic:
     def _drop(self, victim: int) -> None:
         del self._leaves[victim]
         del self._kids[victim]
+        self._release_if_bound(victim, "evict_device")
         parent = self._parent.pop(victim)
         self._tree.remove([victim])
         if parent not in self._kids:
@@ -153,6 +164,98 @@ class DemoTraffic:
         self._kids[parent] -= 1
         if self._kids[parent] == 0:
             self._leaves[parent] = None
+
+    def _bind_tail(self, block_hash: Optional[int]) -> None:
+        """One device checkpoint on the last page, plus the live COW slot."""
+        if block_hash is None:
+            return
+        if len(self._checkpoints) >= len(_CHECKPOINT_SLOTS):
+            self._release_checkpoint(self._checkpoints.pop(0), "path_cap")
+        slot = self._free_checkpoint_slot()
+        self._checkpoints.append(slot)
+        self._checkpoint_of[block_hash] = slot
+        self._hash_of[slot] = block_hash
+        self._tree.apply_mamba(_mamba_alloc(slot, "checkpoint", "acquire"))
+        self._tree.apply_mamba(_mamba_bind(slot, block_hash, self._seqlen(block_hash)))
+        self._tree.apply_mamba(_mamba_cow(slot))
+
+    def _free_checkpoint_slot(self) -> int:
+        used = set(self._checkpoints)
+        return next(slot for slot in _CHECKPOINT_SLOTS if slot not in used)
+
+    def _release_if_bound(self, block_hash: int, reason: str) -> None:
+        slot = self._checkpoint_of.get(block_hash)
+        if slot is None:
+            return
+        self._checkpoints = [item for item in self._checkpoints if item != slot]
+        self._release_checkpoint(slot, reason)
+
+    def _release_checkpoint(self, slot: int, reason: str) -> None:
+        block_hash = self._hash_of.pop(slot, None)
+        if block_hash is not None:
+            self._checkpoint_of.pop(block_hash, None)
+        seqlen = None if block_hash is None else self._seqlen(block_hash)
+        self._tree.apply_mamba(_mamba_free(slot, reason, block_hash, seqlen))
+
+    def _seqlen(self, block_hash: Optional[int]) -> int:
+        total = 0
+        cursor = block_hash
+        seen: set[int] = set()
+        while cursor in self._parent and cursor not in seen:
+            seen.add(cursor)
+            total += BLOCK_TOKENS
+            cursor = self._parent[cursor]
+        return total
+
+
+def _mamba_alloc(slot: int, role: str, reason: str) -> dict:
+    return {
+        "type": "MambaAlloc",
+        "pool": "device",
+        "slot": slot,
+        "role": role,
+        "reason": reason,
+    }
+
+
+def _mamba_bind(slot: int, block_hash: int, seqlen: int) -> dict:
+    return {
+        "type": "MambaBind",
+        "pool": "device",
+        "slot": slot,
+        "block_hash": block_hash,
+        "seqlen": seqlen,
+        "op": "donate",
+    }
+
+
+def _mamba_cow(src: int) -> dict:
+    return {
+        "type": "MambaAlloc",
+        "pool": "device",
+        "slot": 1,
+        "role": "request",
+        "reason": "cow",
+        "src_pool": "device",
+        "src_slot": src,
+    }
+
+
+def _mamba_free(
+    slot: int, reason: str, block_hash: Optional[int], seqlen: Optional[int]
+) -> dict:
+    event = {
+        "type": "MambaFree",
+        "pool": "device",
+        "slot": slot,
+        "role": "checkpoint",
+        "reason": reason,
+    }
+    if block_hash is not None:
+        event["block_hash"] = block_hash
+    if seqlen is not None:
+        event["seqlen"] = seqlen
+    return event
 
 
 def run_demo(

@@ -238,6 +238,55 @@ def _format_cleared(_event: dict) -> str:
     return "cleared"
 
 
+def _format_mamba_alloc(event: dict) -> str:
+    names = ("pool", "slot", "role", "req", "reason", "src_pool", "src_slot")
+    return _mamba_line("mamba alloc", _pairs(event, names), _page_fields(event))
+
+
+def _format_mamba_bind(event: dict) -> str:
+    fields = [
+        f"pool={event.get('pool')}",
+        f"slot={event.get('slot')}",
+        f"hash={event.get('block_hash')}",
+        f"seqlen={event.get('seqlen')}",
+        f"op={event.get('op')}",
+    ]
+    if event.get("req") is not None:
+        fields.append(f"req={event['req']}")
+    return "mamba bind " + " ".join(fields)
+
+
+def _format_mamba_free(event: dict) -> str:
+    names = ("pool", "slot", "role", "req", "reason")
+    return _mamba_line("mamba free", _pairs(event, names), _page_fields(event))
+
+
+def _mamba_line(kind: str, *parts: str) -> str:
+    body = " ".join(part for part in parts if part)
+    return f"{kind} {body}" if body else kind
+
+
+def _page_fields(event: dict) -> str:
+    fields = []
+    if event.get("block_hash") is not None:
+        fields.append(f"hash={event['block_hash']}")
+    if event.get("seqlen") is not None:
+        fields.append(f"seqlen={event['seqlen']}")
+    return " ".join(fields)
+
+
+def _format_mamba_snapshot(event: dict) -> str:
+    pools = event.get("pools") if isinstance(event.get("pools"), dict) else {}
+    slots = event.get("slots") if isinstance(event.get("slots"), list) else []
+    return f"mamba snapshot pools={pools} slots={len(slots)}"
+
+
+def _pairs(event: dict, names: tuple[str, ...]) -> str:
+    return " ".join(
+        f"{name}={event[name]}" for name in names if event.get(name) is not None
+    )
+
+
 def _format_unknown(event: dict) -> str:
     kind = event.get("type", "unknown")
     fields = sorted(key for key in event if key != "type")
@@ -260,4 +309,8 @@ def _preview(values: list) -> str:
 _FORMATTERS = {
     "BlockRemoved": _format_removed,
     "AllBlocksCleared": _format_cleared,
+    "MambaAlloc": _format_mamba_alloc,
+    "MambaFree": _format_mamba_free,
+    "MambaBind": _format_mamba_bind,
+    "MambaSnapshot": _format_mamba_snapshot,
 }

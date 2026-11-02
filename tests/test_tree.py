@@ -50,6 +50,7 @@ class TestCacheTree(unittest.TestCase):
                 "nodes": 2,
                 "missing": 1,
                 "tiers": {"GPU": {"blocks": 4, "tokens": 256}},
+                "mamba": {"pools": {}, "slots": [], "log": [], "releases": []},
             },
         )
         ghost = next(node for node in snapshot["nodes"] if node["missing"])
@@ -360,6 +361,362 @@ class TestSearch(unittest.TestCase):
     def test_a_blank_query_matches_nothing(self):
         self.assertEqual(self.tree.search("   "), [])
         self.assertEqual(self.tree.search("absent"), [])
+
+
+class TestMambaPool(unittest.TestCase):
+    def test_a_bind_marks_the_block_inside_a_collapsed_chain(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None, tokens=64), _decode("a"))
+        tree.apply_stored(_stored(2, 1, tokens=64), _decode("b"))
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "device",
+                "slot": 4,
+                "block_hash": 2,
+                "seqlen": 128,
+                "op": "donate",
+            }
+        )
+        node = _nodes(tree)["1..2"]
+        self.assertEqual(
+            node["mamba"],
+            [{"at": 1, "pool": "device", "slot": 4, "seqlen": 128, "hash": "2"}],
+        )
+        self.assertNotIn("mamba", _nodes(tree).get("missing", {}))
+        block = tree.blocks_of("1..2")[1]
+        self.assertEqual(block["mamba"][0]["slot"], 4)
+        self.assertNotIn("mamba", tree.blocks_of("1..2")[0])
+
+    def test_a_free_drops_the_mark_and_leaves_the_block(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("kept"))
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "device",
+                "slot": 3,
+                "block_hash": 9,
+                "seqlen": 64,
+                "op": "donate",
+            }
+        )
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 3,
+                "role": "checkpoint",
+                "reason": "path_cap",
+                "block_hash": 9,
+                "seqlen": 64,
+            }
+        )
+        self.assertNotIn("mamba", _nodes(tree)["9"])
+        self.assertEqual(tree.blocks_of("9")[0]["text"], "kept")
+        self.assertIn("path_cap", tree.snapshot()["stats"]["mamba"]["log"][-1])
+        release = tree.snapshot()["stats"]["mamba"]["releases"][-1]
+        self.assertEqual(release["reason"], "path_cap")
+        self.assertEqual(release["hash"], "9")
+        self.assertTrue(release["kv"])
+        self.assertEqual(release["node"], "9")
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 1,
+                "reason": "request_done",
+            }
+        )
+        self.assertEqual(len(tree.snapshot()["stats"]["mamba"]["releases"]), 1)
+
+    def test_removing_the_page_drops_its_release(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("gone"))
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 3,
+                "reason": "evict_device",
+                "block_hash": 9,
+                "seqlen": 64,
+            }
+        )
+        self.assertTrue(tree.snapshot()["stats"]["mamba"]["releases"][-1]["kv"])
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "device",
+                "slot": 4,
+                "block_hash": 9,
+                "seqlen": 64,
+                "op": "donate",
+            }
+        )
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["releases"], [])
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 4,
+                "reason": "evict_device",
+                "block_hash": 9,
+                "seqlen": 64,
+            }
+        )
+        self.assertEqual(len(tree.snapshot()["stats"]["mamba"]["releases"]), 1)
+        tree.remove([9])
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["releases"], [])
+
+    def test_a_snapshot_replaces_the_pool_and_clear_keeps_its_size(self):
+        tree = CacheTree()
+        tree.apply_mamba(
+            {
+                "type": "MambaAlloc",
+                "pool": "device",
+                "slot": 2,
+                "role": "request",
+                "reason": "acquire",
+            }
+        )
+        tree.apply_mamba(
+            {
+                "type": "MambaSnapshot",
+                "pools": {"device": 8, "host": 4},
+                "slots": [
+                    {
+                        "pool": "host",
+                        "slot": 1,
+                        "role": "checkpoint",
+                        "block_hash": 5,
+                        "seqlen": 64,
+                    }
+                ],
+            }
+        )
+        slots = tree.snapshot()["stats"]["mamba"]["slots"]
+        self.assertEqual([row["pool"] for row in slots], ["host"])
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["pools"]["device"], 8)
+        tree.apply_stored(_stored(5, None), _decode("page"))
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 3,
+                "reason": "path_cap",
+                "block_hash": 5,
+                "seqlen": 64,
+            }
+        )
+        self.assertEqual(len(tree.snapshot()["stats"]["mamba"]["releases"]), 1)
+        tree.clear()
+        mamba = tree.snapshot()["stats"]["mamba"]
+        self.assertEqual(mamba["slots"], [])
+        self.assertEqual(mamba["log"], [])
+        self.assertEqual(mamba["releases"], [])
+        self.assertEqual(mamba["pools"]["device"], 8)
+
+    def test_a_bad_event_is_ignored(self):
+        tree = CacheTree()
+        tree.apply_mamba({"type": "MambaAlloc", "pool": "device"})
+        tree.apply_mamba("nope")
+        self.assertEqual(tree.snapshot()["version"], 0)
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["slots"], [])
+
+    def test_host_slot_zero_stays_in_a_snapshot(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("page"))
+        tree.apply_mamba(
+            {
+                "type": "MambaSnapshot",
+                "pools": {"host": 4, "device": 8},
+                "slots": [
+                    {
+                        "pool": "host",
+                        "slot": 0,
+                        "role": "checkpoint",
+                        "block_hash": 9,
+                        "seqlen": 64,
+                    },
+                    {"pool": "device", "slot": 1, "role": "request"},
+                ],
+            }
+        )
+        mamba = tree.snapshot()["stats"]["mamba"]
+        self.assertEqual(
+            [(row["pool"], row["slot"]) for row in mamba["slots"]],
+            [("device", 1), ("host", 0)],
+        )
+        self.assertEqual(_nodes(tree)["9"]["mamba"][0]["slot"], 0)
+        version = tree.snapshot()["version"]
+        tree.apply_mamba(
+            {
+                "type": "MambaSnapshot",
+                "pools": {"host": 4},
+                "slots": [{"pool": "host", "slot": -1, "role": "checkpoint"}],
+            }
+        )
+        self.assertEqual(tree.snapshot()["version"], version)
+        self.assertEqual(len(tree.snapshot()["stats"]["mamba"]["slots"]), 2)
+
+    def test_an_unchanged_snapshot_does_not_bump_the_version(self):
+        tree = CacheTree()
+        event = {
+            "type": "MambaSnapshot",
+            "pools": {"device": 8, "host": 4},
+            "slots": [
+                {
+                    "pool": "host",
+                    "slot": 0,
+                    "role": "checkpoint",
+                    "block_hash": 9,
+                    "seqlen": 64,
+                }
+            ],
+        }
+        tree.apply_mamba(event)
+        version = tree.snapshot()["version"]
+        recorded = list(tree.snapshot()["stats"]["mamba"]["log"])
+        tree.apply_mamba(event)
+        self.assertEqual(tree.snapshot()["version"], version)
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["log"], recorded)
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["slots"][0]["slot"], 0)
+
+    def test_an_unchanged_alloc_does_not_bump_the_version(self):
+        tree = CacheTree()
+        event = {
+            "type": "MambaAlloc",
+            "pool": "device",
+            "slot": 1,
+            "role": "request",
+            "reason": "cow",
+            "src_slot": 4,
+            "src_pool": "device",
+        }
+        tree.apply_mamba(event)
+        version = tree.snapshot()["version"]
+        tree.apply_mamba(event)
+        self.assertEqual(tree.snapshot()["version"], version)
+
+    def test_export_carries_the_pool_without_the_live_log(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(7, None), _decode("page"))
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "ckpt",
+                "slot": 2,
+                "block_hash": 7,
+                "seqlen": 64,
+                "op": "int8_commit",
+            }
+        )
+        document = tree.node_blocks()
+        self.assertNotIn("log", document["mamba"])
+        self.assertNotIn("log", document["stats"]["mamba"])
+        self.assertNotIn("releases", document["mamba"])
+        self.assertNotIn("releases", document["stats"]["mamba"])
+        self.assertEqual(document["mamba"]["slots"][0]["slot"], 2)
+        self.assertEqual(document["nodes"][0]["blocks"][0]["mamba"][0]["pool"], "ckpt")
+
+    def test_a_free_without_a_hash_keeps_the_bound_page(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("kept"))
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "device",
+                "slot": 3,
+                "block_hash": 9,
+                "seqlen": 64,
+                "op": "donate",
+            }
+        )
+        tree.apply_mamba(
+            {"type": "MambaFree", "pool": "device", "slot": 3, "reason": "path_cap"}
+        )
+        release = tree.snapshot()["stats"]["mamba"]["releases"][-1]
+        self.assertEqual(release["hash"], "9")
+        self.assertEqual(release["seqlen"], 64)
+        self.assertEqual(release["node"], "9")
+
+    def test_an_alloc_with_the_same_page_drops_the_old_release(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("page"))
+        tree.apply_mamba(
+            {
+                "type": "MambaFree",
+                "pool": "device",
+                "slot": 3,
+                "reason": "path_cap",
+                "block_hash": 9,
+                "seqlen": 64,
+            }
+        )
+        tree.apply_mamba(
+            {
+                "type": "MambaAlloc",
+                "pool": "device",
+                "slot": 5,
+                "role": "checkpoint",
+                "reason": "acquire",
+                "block_hash": 9,
+                "seqlen": 64,
+            }
+        )
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["releases"], [])
+
+    def test_a_repeated_free_keeps_the_newest_release(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(9, None), _decode("page"))
+        for slot in (3, 4):
+            tree.apply_mamba(
+                {
+                    "type": "MambaFree",
+                    "pool": "device",
+                    "slot": slot,
+                    "reason": "evict_device",
+                    "block_hash": 9,
+                    "seqlen": 64,
+                }
+            )
+        releases = tree.snapshot()["stats"]["mamba"]["releases"]
+        self.assertEqual([row["slot"] for row in releases], [4])
+
+    def test_marks_follow_pool_then_slot(self):
+        tree = CacheTree()
+        tree.apply_stored(_stored(1, None), _decode("a"))
+        for pool, slot in (("host", 1), ("ckpt", 2)):
+            tree.apply_mamba(
+                {
+                    "type": "MambaBind",
+                    "pool": pool,
+                    "slot": slot,
+                    "block_hash": 1,
+                    "seqlen": 64,
+                    "op": "donate",
+                }
+            )
+        pools = [mark["pool"] for mark in _nodes(tree)["1"]["mamba"]]
+        self.assertEqual(pools, ["ckpt", "host"])
+        exported = [mark["pool"] for mark in tree.blocks_of("1")[0]["mamba"]]
+        self.assertEqual(exported, pools)
+
+    def test_a_negative_seqlen_is_ignored(self):
+        tree = CacheTree()
+        tree.apply_mamba(
+            {
+                "type": "MambaBind",
+                "pool": "device",
+                "slot": 1,
+                "block_hash": 9,
+                "seqlen": -1,
+                "op": "donate",
+            }
+        )
+        self.assertEqual(tree.snapshot()["version"], 0)
+        self.assertEqual(tree.snapshot()["stats"]["mamba"]["slots"], [])
 
 
 if __name__ == "__main__":

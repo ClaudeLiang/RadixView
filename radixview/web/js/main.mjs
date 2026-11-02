@@ -2,8 +2,9 @@
 
 import { fetchBlocks, fetchNodeBlocks, fetchTree, locateNode, searchText } from "./api.mjs";
 import { exportBody, exportFilename } from "./export.mjs";
-import { blockMeta, clip, hitsLine, nodeTitle, statsLine } from "./format.mjs";
+import { blockMeta, clip, hitsLine, nodeTitle, poolOccupancy, statsLine } from "./format.mjs";
 import { layoutTree, pathTo } from "./layout.mjs";
+import { pagesByHash, releaseText, shownReleases, slotFields } from "./pool.mjs";
 import { drawScene } from "./render.mjs";
 import { centerOn, fitView, hitTest, initialView, panBy, zoomAt } from "./viewport.mjs";
 
@@ -28,6 +29,7 @@ const state = {
   highlight: null,
   query: "",
   stats: null,
+  panel: null,
   tiers: Object.fromEntries(
     tierButtons.map((button) => [button.dataset.tier, button.classList.contains("on")])),
   drag: null,
@@ -50,6 +52,7 @@ function theme() {
     hit: value("hit"),
     gpu: value("gpu"),
     cpu: value("cpu"),
+    mamba: value("mamba"),
     other: value("other"),
   };
 }
@@ -82,6 +85,7 @@ function fit() {
 
 function showStats() {
   $("stats").textContent = statsLine(state.stats);
+  if (state.panel === "pool") renderPool();
 }
 
 function applyTree(payload) {
@@ -129,6 +133,7 @@ async function poll() {
 }
 
 async function select(id) {
+  state.panel = "node";
   state.selected = id;
   const ids = pathTo(id, state.layout.parentOf);
   state.path = new Set(ids);
@@ -143,10 +148,108 @@ async function select(id) {
 }
 
 function closeDetail() {
+  state.panel = null;
   state.selected = null;
   state.path = null;
   $("detail").classList.remove("open");
   resize();
+}
+
+function openPool() {
+  state.panel = state.panel === "pool" ? null : "pool";
+  if (state.panel !== "pool") {
+    closeDetail();
+    return;
+  }
+  state.selected = null;
+  state.path = null;
+  state.dirty = true;
+  const detail = $("detail");
+  if (!detail.classList.contains("open")) {
+    detail.classList.add("open");
+    resize();
+  }
+  renderPool();
+}
+
+const SLOT_COLUMNS = ["pool", "slot", "role", "from", "page", "seqlen"];
+
+function renderPool() {
+  const mamba = (state.stats && state.stats.mamba) || { pools: {}, slots: [], releases: [] };
+  $("path").replaceChildren(paragraph(poolHeading(mamba)));
+  const box = $("blocks");
+  box.replaceChildren(poolTable(mamba, pagesByHash(state.nodes)));
+  const releases = shownReleases(mamba.releases);
+  if (releases.length) box.append(releaseNote(), releaseList(releases));
+}
+
+function poolHeading(mamba) {
+  const line = poolOccupancy(mamba);
+  return line ? "Mamba pool · " + line : "Mamba pool";
+}
+
+function poolTable(mamba, pages) {
+  const table = document.createElement("table");
+  table.className = "pool";
+  table.append(poolHead());
+  for (const row of mamba.slots || []) {
+    table.append(slotRow(row, pages.get(String(row.hash))));
+  }
+  return table;
+}
+
+function poolHead() {
+  const head = document.createElement("tr");
+  for (const name of SLOT_COLUMNS) head.append(headed(name));
+  return head;
+}
+
+function headed(name) {
+  const cell = document.createElement("th");
+  cell.textContent = name;
+  return cell;
+}
+
+function slotRow(row, page) {
+  const fields = slotFields(row, page);
+  const line = document.createElement("tr");
+  for (const name of SLOT_COLUMNS) line.append(fieldCell(name, fields));
+  if (fields.node) {
+    line.className = "link";
+    line.addEventListener("click", () => focus(fields.node));
+  }
+  return line;
+}
+
+function fieldCell(name, fields) {
+  const cell = document.createElement("td");
+  cell.textContent = fields[name] || "";
+  const title = fields[name + "Title"];
+  if (title) cell.title = title;
+  if (name === "page" || name === "role") cell.className = name;
+  return cell;
+}
+
+function releaseNote() {
+  const note = paragraph("State dropped, page kept");
+  note.className = "pool-note";
+  return note;
+}
+
+function releaseList(rows) {
+  const list = document.createElement("ul");
+  list.className = "pool-releases";
+  for (const row of rows) list.append(releaseItem(row));
+  return list;
+}
+
+function releaseItem(row) {
+  const item = document.createElement("li");
+  item.textContent = releaseText(row);
+  if (!row.node || !state.byId.has(row.node)) return item;
+  item.classList.add("link");
+  item.addEventListener("click", () => focus(row.node));
+  return item;
 }
 
 function renderPath(ids, current) {
@@ -328,6 +431,7 @@ window.addEventListener("keydown", onKey);
 for (const button of tierButtons) button.addEventListener("click", onTier);
 $("query").addEventListener("input", onQuery);
 $("query").addEventListener("keydown", onQueryKey);
+$("pool").addEventListener("click", openPool);
 $("export").addEventListener("click", onExport);
 $("fit").addEventListener("click", fit);
 

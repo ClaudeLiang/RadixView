@@ -18,7 +18,17 @@ export function nodeMeta(node) {
   parts.push(node.tokens + " tok");
   const label = mediaLabel(node.media);
   if (label) parts.push(label);
+  const mamba = mambaLabel(node);
+  if (mamba) parts.push(mamba);
   return parts.join(" · ");
+}
+
+function mambaLabel(node) {
+  const marks = node.mamba;
+  if (!marks || !marks.length) return "";
+  const covered = new Set(marks.map((mark) => mark.at)).size;
+  if (!node.blocks || covered >= node.blocks) return "mamba";
+  return "mamba " + covered + "/" + node.blocks;
 }
 
 // The server sends stats.tiers already in tier order.
@@ -32,7 +42,36 @@ export function statsLine(stats) {
   for (const [name, tier] of Object.entries(stats.tiers || {})) {
     parts.push(name + " " + tier.blocks + " blocks (" + tier.tokens + " tok)");
   }
+  const mamba = mambaStats(stats.mamba);
+  if (mamba) parts.push(mamba);
   return parts.join(" · ");
+}
+
+const POOL_RANK = { device: 0, host: 1, ckpt: 2 };
+
+// Occupied/size for each announced pool. The three pools number slots
+// separately, so a single used/size sum hides which one is full.
+export function poolOccupancy(mamba) {
+  if (!mamba || !mamba.pools) return "";
+  const names = Object.keys(mamba.pools).sort(poolOrder);
+  if (!names.length) return "";
+  const used = {};
+  for (const row of mamba.slots || []) {
+    used[row.pool] = (used[row.pool] || 0) + 1;
+  }
+  return names.map((name) => name + " " + (used[name] || 0) + "/" + mamba.pools[name]).join(" · ");
+}
+
+function poolOrder(left, right) {
+  const rank = (name) => (name in POOL_RANK ? POOL_RANK[name] : 9);
+  const gap = rank(left) - rank(right);
+  if (gap) return gap;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function mambaStats(mamba) {
+  const line = poolOccupancy(mamba);
+  return line ? "mamba " + line : "";
 }
 
 function mediaLabel(media) {
@@ -46,7 +85,10 @@ export function hitsLine(query, ids) {
 }
 
 export function blockMeta(block) {
-  return [mediaLabel(block.media) || "-", block.tokens + " tok", shortHash(block.hash)].join(" · ");
+  const parts = [mediaLabel(block.media) || "-", block.tokens + " tok", shortHash(block.hash)];
+  const marks = (block.mamba || []).map((row) => row.pool + " " + row.slot);
+  if (marks.length) parts.push(marks.join(", "));
+  return parts.join(" · ");
 }
 
 export function shortHash(hash) {

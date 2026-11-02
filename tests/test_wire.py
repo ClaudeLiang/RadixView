@@ -14,6 +14,11 @@ from fake_sglang import (
     LegacyBlockRemoved,
     LegacyBlockStored,
     LegacyBlockStoredWithMetadata,
+    MambaAlloc,
+    MambaBind,
+    MambaFree,
+    MambaSlotView,
+    MambaSnapshot,
     frames,
 )
 
@@ -207,6 +212,90 @@ class TestFormatEvent(unittest.TestCase):
         self.assertIn("CPU_PINNED", removed)
         cleared = format_event(self._decoded(AllBlocksCleared()))
         self.assertEqual(cleared, "cleared")
+
+    def test_mamba_events_stay_on_one_line(self):
+        alloc = format_event(
+            self._decoded(
+                MambaAlloc(
+                    pool="device",
+                    slot=18,
+                    role="request",
+                    req="abc",
+                    reason="acquire",
+                )
+            )
+        )
+        bind = format_event(
+            self._decoded(
+                MambaBind(
+                    pool="device",
+                    slot=17,
+                    block_hash=-2285270490815386373,
+                    seqlen=8192,
+                    op="donate",
+                )
+            )
+        )
+        freed = format_event(
+            self._decoded(
+                MambaFree(
+                    pool="device",
+                    slot=9,
+                    role="checkpoint",
+                    reason="path_cap",
+                    block_hash=-871666239493208026,
+                    seqlen=4096,
+                )
+            )
+        )
+        snapshot = format_event(
+            self._decoded(
+                MambaSnapshot(
+                    pools={"device": 8},
+                    slots=[
+                        MambaSlotView(
+                            pool="device",
+                            slot=17,
+                            role="checkpoint",
+                            block_hash=-2285270490815386373,
+                            seqlen=8192,
+                        )
+                    ],
+                )
+            )
+        )
+        paged = format_event(
+            self._decoded(
+                MambaAlloc(
+                    pool="device",
+                    slot=4,
+                    role="checkpoint",
+                    reason="acquire",
+                    block_hash=9,
+                    seqlen=64,
+                )
+            )
+        )
+        self.assertEqual(
+            alloc, "mamba alloc pool=device slot=18 role=request req=abc reason=acquire"
+        )
+        self.assertEqual(
+            paged,
+            "mamba alloc pool=device slot=4 role=checkpoint reason=acquire "
+            "hash=9 seqlen=64",
+        )
+        self.assertEqual(
+            bind,
+            "mamba bind pool=device slot=17 hash=-2285270490815386373 "
+            "seqlen=8192 op=donate",
+        )
+        self.assertEqual(
+            freed,
+            "mamba free pool=device slot=9 role=checkpoint reason=path_cap "
+            "hash=-871666239493208026 seqlen=4096",
+        )
+        self.assertEqual(snapshot, "mamba snapshot pools={'device': 8} slots=1")
+        self.assertNotIn("\n", alloc + bind + freed + snapshot)
 
     def test_an_unknown_event_lists_its_fields(self):
         line = format_event({"type": "BlockMoved", "to": "DISK", "block_hashes": []})

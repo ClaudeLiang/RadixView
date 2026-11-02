@@ -70,6 +70,7 @@ function drawNode(ctx, node, scene, opts) {
   const point = scene.layout.positions.get(node.id);
   paintBox(ctx, node, scene, opts, point);
   paintBar(ctx, node, point, opts);
+  paintMamba(ctx, node, point, opts.theme);
   if (opts.text) paintLabel(ctx, node, point, opts.theme);
 }
 
@@ -103,6 +104,17 @@ function paintBar(ctx, node, point, opts) {
     ctx.fillRect(point.x, y, BAR_W, height);
   });
   if (rounded) ctx.restore();
+}
+
+function paintMamba(ctx, node, point, theme) {
+  const marks = node.mamba;
+  if (!marks || !marks.length) return;
+  const covered = new Set(marks.map((mark) => mark.at)).size;
+  ctx.fillStyle = theme.mamba;
+  const count = Math.min(covered, 6);
+  for (let index = 0; index < count; index += 1) {
+    ctx.fillRect(point.x + NODE_W - 14 - index * 10, point.y + 8, 8, 4);
+  }
 }
 
 function tierColor(name, theme) {

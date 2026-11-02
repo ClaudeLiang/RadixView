@@ -3,6 +3,7 @@
 
 import { run } from "./harness.mjs";
 import "./format.test.mjs";
+import "./pool.test.mjs";
 import "./export.test.mjs";
 import "./layout.test.mjs";
 import "./viewport.test.mjs";

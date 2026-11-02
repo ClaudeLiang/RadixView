@@ -12,6 +12,7 @@ from examples.demo import DemoTraffic
 from radixview.tree import CacheTree
 
 _RUNNER = Path(__file__).with_name("web") / "run.mjs"
+_JS = Path(__file__).resolve().parents[1] / "radixview" / "web" / "js"
 _MOCKS = {"demo": 400, "large": 20000}
 
 
@@ -39,6 +40,22 @@ class TestWeb(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("FAIL", result.stdout)
         self.assertNotIn("SKIP", result.stdout)
+
+
+@unittest.skipIf(shutil.which("node") is None, "node is not installed")
+class TestPageModulesParse(unittest.TestCase):
+    def test_every_module_parses(self):
+        paths = sorted(_JS.glob("*.mjs"))
+        self.assertTrue(paths)
+        for path in paths:
+            with self.subTest(path=path.name):
+                result = subprocess.run(
+                    ["node", "--check", str(path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
